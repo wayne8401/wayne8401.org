@@ -274,7 +274,7 @@
       const files = Object.entries(d.files).map(([name, f]) => ({ name, size: f.content.length, updatedAt: f.updatedAt })).sort((a, b) => b.updatedAt - a.updatedAt);
       return {
         mode: 'demo', model: d.defaultModel, defaultModel: d.defaultModel,
-        models: DEMO_MODELS, providers: DEMO_PROVIDERS, connectors: d.connectors, plugins: d.plugins, voices: [], clone: { available: false },
+        models: DEMO_MODELS, providers: DEMO_PROVIDERS, connectors: d.connectors, plugins: d.plugins, voices: [], clone: { available: false }, studio: { available: false, voices: [] },
         stations: d.stations,
         agents: d.agents.map((a) => {
           const running = d.tasks.find((t) => t.agent === a.id && t.status === 'running');
@@ -297,12 +297,12 @@
       ['POST', /^workflows$/, (_, b) => { const wf = { id: uid('wf'), trigger: 'manual', ...b }; d.workflows.push(wf); return wf; }],
       ['DELETE', /^workflows\/(.+)$/, ([id]) => { d.workflows = d.workflows.filter((w) => w.id !== id); return { ok: true }; }],
       ['POST', /^workflows\/(.+)\/run$/, ([id], b) => runWorkflow(d.workflows.find((w) => w.id === id), b.input)],
-      ['POST', /^agents$/, (_, b) => { let id = slug(b.name); if (d.agents.some((a) => a.id === id)) id += '-' + Math.random().toString(36).slice(2, 5); const a = { id, name: b.name, role: b.role || 'Assistant', station: b.station || 'research', instructions: b.instructions || '' }; d.agents.push(a); ev('success', id, `${a.name} joined the station`); return a; }],
+      ['POST', /^agents$/, (_, b) => { let id = slug(b.name); if (d.agents.some((a) => a.id === id)) id += '-' + Math.random().toString(36).slice(2, 5); const a = { id, name: b.name, role: b.role || 'Assistant', station: b.station || 'research', instructions: b.instructions || '', avatar: b.avatar || '', voiceId: '', model: b.model || '' }; d.agents.push(a); ev('success', id, `${a.name} joined the station`); return a; }],
       ['POST', /^skills$/, (_, b) => { const s = { id: slug(b.name), name: b.name, description: b.description, instructions: b.instructions, author: 'you', uses: 0, updatedAt: now() }; d.skills = [s, ...d.skills.filter((k) => k.id !== s.id)]; ev('success', null, `You taught the station skill “${s.name}”`); return s; }],
       ['DELETE', /^skills\/(.+)$/, ([id]) => { d.skills = d.skills.filter((s) => s.id !== id); return { ok: true }; }],
       ['POST', /^memories$/, (_, b) => { const m = { id: uid('mem'), ts: now(), agent: b.agent || null, scope: b.agent ? 'agent' : 'shared', fact: b.fact, source: 'you' }; d.memories.unshift(m); return m; }],
       ['DELETE', /^memories\/(.+)$/, ([id]) => { d.memories = d.memories.filter((m) => m.id !== id); return { ok: true }; }],
-      ['PATCH', /^agents\/(.+)$/, ([id], b) => { const a = d.agents.find((x) => x.id === id); if ('model' in b) { a.model = b.model; ev('info', id, `${a.name} now uses ${b.model || d.defaultModel}`); } return a; }],
+      ['PATCH', /^agents\/(.+)$/, ([id], b) => { const a = d.agents.find((x) => x.id === id); if ('avatar' in b) a.avatar = b.avatar; if ('model' in b) { a.model = b.model; ev('info', id, `${a.name} now uses ${b.model || d.defaultModel}`); } return a; }],
       ['PATCH', /^settings$/, (_, b) => { if (b.defaultModel) d.defaultModel = b.defaultModel; return { defaultModel: d.defaultModel }; }],
       ['POST', /^models\/refresh$/, () => ({ count: DEMO_MODELS.length })],
       ['POST', /^connectors\/remote$/, (_, b) => { const id = 'remote-' + slug(b.name || 'connector'); d.connectors.push({ id, name: b.name || b.url, icon: '🔗', desc: b.url, requires: 'Remote MCP server', needs: [], custom: true, type: 'http', enabled: false, status: 'off', tools: [] }); return connect(id); }],
@@ -337,7 +337,7 @@
   }
 
   /* ============================================================== state */
-  const EMPTY = { stations: [], agents: [], workflows: [], tasks: [], skills: [], memories: [], events: [], files: [], models: [], providers: [], connectors: [], plugins: [], voices: [], clone: {}, mode: 'demo' };
+  const EMPTY = { stations: [], agents: [], workflows: [], tasks: [], skills: [], memories: [], events: [], files: [], models: [], providers: [], connectors: [], plugins: [], voices: [], clone: {}, studio: { voices: [] }, mode: 'demo' };
   let S = { ...EMPTY };
   let lastOk = 0, lastErr = '', timer = null;
   const ui = {
@@ -387,21 +387,25 @@
 
   /* ========================================================= components */
   const pill = (s) => `<span class="pill s-${esc(s)}">${esc(s)}</span>`;
-  const avatar = (a, size = '') => `<span class="avatar ${size}" style="background:${colorOf(a.id)}">${esc((a.name || '?').slice(0, 1))}</span>`;
+  const CH = window.AgentStationCharacters || { CHARACTERS: [], LOOKS: {}, avatarSvg: () => '', byId: () => null };
+  const lookOf = (a) => CH.LOOKS[a?.avatar] || CH.byId(a?.avatar)?.look || CH.LOOKS[a?.id] || null;
+  const avatar = (a, size = '') => {
+    const look = lookOf(a);
+    return look ? `<span class="avatar art ${size}">${CH.avatarSvg(look, esc(a.name || ''))}</span>`
+      : `<span class="avatar ${size}" style="background:${colorOf(a.id)}">${esc((a.name || '?').slice(0, 1))}</span>`;
+  };
+  const charAvatar = (c, size = '') => `<span class="avatar art ${size}">${CH.avatarSvg(c.look, esc(c.name))}</span>`;
   const bar = (pct) => `<div class="bar"><i style="width:${Math.max(0, Math.min(100, pct || 0))}%"></i></div>`;
   const empty = (msg, cta = '') => `<div class="empty">${msg}${cta}</div>`;
 
   /* ============================================================= views */
   const VIEWS = {
     station: () => `
-      <div class="hello card">
-        <div><h3>${greeting()}</h3><p class="muted">${S.mode === 'demo' ? 'You are in <b>demo mode</b> — everything is simulated. Connect your station in ⚙️ to do real work.' : `Connected to your station · ${esc(S.model || '')}`}</p></div>
-        <button class="btn small" data-act="go-tasks">+ New task</button>
-      </div>
+      <div class="hello card" data-region="hello"></div>
       <div class="stats" id="statsRow" data-region="stats"></div>
       <h2>Station map</h2>
       <div class="card" data-region="map"></div>
-      <div class="h2row"><h2>Agents</h2><button class="link" data-act="new-agent">+ Add agent</button></div>
+      <div class="h2row"><h2>Agents</h2><button class="link" data-act="new-agent">✨ Add from gallery</button></div>
       <div class="chips" data-region="stationChips"></div>
       <div class="list" style="margin-top:10px" data-region="agents"></div>
       <h2>Live activity</h2>
@@ -451,6 +455,8 @@
   };
 
   const REGIONS = {
+    hello: () => `<div><h3>${greeting()}</h3><p class="muted">${S.mode === 'demo' ? 'You are in <b>demo mode</b>: everything is simulated. Connect your station in ⚙️ to do real work.' : `Connected to your station · ${esc(shortModel(S.defaultModel || S.model))}`}</p></div>
+        <button class="btn small" data-act="go-tasks">+ New task</button>`,
     stats() {
       const A = S.agents;
       const busy = A.filter((a) => a.status === 'running').length;
@@ -585,7 +591,11 @@
         const ax = cx + Math.cos(aa) * 122, ay = cy + Math.sin(aa) * 122;
         const ring = { running: '#4dffa6', waiting: '#ffb84d', error: '#ff5c7a' }[a.status] || '#8592b8';
         svg += `<line class="link ${a.status === 'running' ? 'hot' : ''}" x1="${sx.toFixed(1)}" y1="${sy.toFixed(1)}" x2="${ax.toFixed(1)}" y2="${ay.toFixed(1)}"/>`;
-        nodes += `<g class="node" data-act="agent" data-id="${esc(a.id)}"><circle cx="${ax.toFixed(1)}" cy="${ay.toFixed(1)}" r="15" fill="${colorOf(a.id)}" opacity=".18"/><circle cx="${ax.toFixed(1)}" cy="${ay.toFixed(1)}" r="9" fill="${colorOf(a.id)}" stroke="${ring}" stroke-width="2.5"/><text x="${ax.toFixed(1)}" y="${(ay + 27).toFixed(1)}">${esc(a.name)}</text></g>`;
+        const look = lookOf(a);
+        const face = look
+          ? `<circle cx="${ax.toFixed(1)}" cy="${ay.toFixed(1)}" r="13.5" fill="none" stroke="${ring}" stroke-width="2.5"/><image href="data:image/svg+xml;utf8,${encodeURIComponent(CH.avatarSvg(look))}" x="${(ax - 12).toFixed(1)}" y="${(ay - 12).toFixed(1)}" width="24" height="24" clip-path="circle(11px)"/>`
+          : `<circle cx="${ax.toFixed(1)}" cy="${ay.toFixed(1)}" r="9" fill="${colorOf(a.id)}" stroke="${ring}" stroke-width="2.5"/>`;
+        nodes += `<g class="node" data-act="agent" data-id="${esc(a.id)}"><circle cx="${ax.toFixed(1)}" cy="${ay.toFixed(1)}" r="16" fill="${colorOf(a.id)}" opacity=".18"/>${face}<text x="${ax.toFixed(1)}" y="${(ay + 27).toFixed(1)}">${esc(a.name)}</text></g>`;
       });
     });
     return `<div class="orbit"><svg viewBox="-12 -12 324 324" role="img" aria-label="Station map">${svg}
@@ -623,7 +633,8 @@
     { id: 'free-models', icon: '🆓', title: 'Free & open-source AI models', time: '3 min', body: md('Agents don\'t have to use a paid model. Each agent can run on a different "brain":\n\n- **Ollama: 100% free and private.** Runs open models (Qwen, Llama, Mistral, Gemma, DeepSeek…) on your own computer. Install from **ollama.com**, then run `ollama pull qwen3:8b`. The station finds it automatically.\n- **OpenRouter: free hosted models.** Make a free key at openrouter.ai; models ending in **:free** cost nothing (with rate limits).\n- **Groq: very fast, free tier.** Free key at console.groq.com.\n- **LM Studio / vLLM / llama.cpp:** any OpenAI-compatible server works.\n- **Claude:** paid, but the strongest at long multi-step work.\n\n**Tips:** pick models that support **tools** (qwen3, llama3.1, mistral-small). Small local models are great for drafts and simple lookups; give hard research to bigger models. Switch on the **Step-by-step thinking** connector to help small models plan.\n\nChange models in **Brain → Connect**, or per agent by tapping it on the Station tab.') },
     { id: 'connectors', icon: '🧰', title: 'Connectors & plugins', time: '2 min', body: md('**Connectors** plug apps into your agents using **MCP**, an open standard. Switch one on in **Brain → Connect** and every agent can use its tools:\n\n- 🌐 **Web browser**: clicks around real websites\n- 🗂️ **Files**, 🕸️ **Knowledge graph**, 🕒 **Time**, 📰 **Web page reader**\n- 🐙 **GitHub** and 📒 **Notion** (need a token from your account)\n- 🔗 **Add by URL**: any remote MCP server\n\n**Plugins** are tiny built-in tools (calculator, weather, Wikipedia). Developers can add one by dropping a file into `server/plugins/`.\n\nOnly connect services you trust, and give tokens the least access they need.') },
     { id: 'voice', icon: '🎙️', title: 'Talk to your agents', time: '1 min', body: md('Tap **🎙️** at the top of any screen (or **Talk** on an agent) and just speak.\n\n- The agent works on what you said, then **reads its answer aloud** in a few short sentences. Longer details go into a file you can open.\n- **Hands-free** keeps the conversation going: after each answer it listens again. Say **"goodbye"** to stop.\n- The **🎤** button in the task box lets you dictate a prompt instead of typing.\n- Change the language, voice and speaking speed in **Brain → Connect → Voice**.\n\nIt\'s free: your phone recognizes speech and speaks with its own voices. (Firefox users: the station can transcribe with open-source Whisper instead.)') },
-    { id: 'clone', icon: '🧬', title: 'Clone a voice (free)', time: '2 min', body: md('Your agents can speak with a **cloned voice**, such as your own, so voice chat sounds like a real person.\n\n1. On the server computer, start the free cloner once: `cd server/voice-clone`, `pip install -r requirements.txt`, `python clone_server.py`. It uses **Chatterbox**, an open-source model that runs on your machine.\n2. In **Brain → Connect → Voice**, tap **Clone a voice**, confirm consent, and read the short script aloud (about 20 seconds).\n3. Tap an agent → **Speaking voice** → pick the new voice.\n\n**Rules that matter:** only clone your own voice or someone who agreed. The sample must be recorded live with a spoken consent line, and existing recordings can\'t be uploaded. Never use a cloned voice to trick or impersonate anyone; in many places that\'s illegal. Every clip has an inaudible AI watermark. Delete a voice anytime.') },
+    { id: 'characters', icon: '✨', title: 'Characters & free voices', time: '2 min', body: md('Tap **✨ Add from gallery** on the Station tab to add a ready-made character: **Novi** (research), **Zipp** (fact-checks), **Professor Hootley** (tutor), **Kit** (study buddy), **Confetti** (social posts), **Luma** (stories), **Pip** (budgets), **Mira** (email), **Wrenna** (tech help), **Rova** (travel), **Basil** (cooking) and **Calma** (routines).\n\n**Free to use, no copyright worries:** the characters and avatars were made for Agent Station and are released under **CC0**. Use, change and share them, even commercially.\n\n**Voices:** each character has a suggested **studio voice** from Kokoro, an open-source model licensed **Apache-2.0** (free for any use). Install it on the server computer with `pip install kokoro`, then run `python voice_server.py` in `server/voice-clone`. Without it, characters use your device voice at their own pitch.\n\nChange any agent\'s voice: tap the agent → **Speaking voice**.') },
+    { id: 'clone', icon: '🧬', title: 'Clone a voice (free)', time: '2 min', body: md('Your agents can speak with a **cloned voice**, such as your own, so voice chat sounds like a real person.\n\n1. On the server computer, start the free cloner once: `cd server/voice-clone`, `pip install -r requirements.txt`, `python voice_server.py`. It uses **Chatterbox**, an open-source model that runs on your machine.\n2. In **Brain → Connect → Voice**, tap **Clone a voice**, confirm consent, and read the short script aloud (about 20 seconds).\n3. Tap an agent → **Speaking voice** → pick the new voice.\n\n**Rules that matter:** only clone your own voice or someone who agreed. The sample must be recorded live with a spoken consent line, and existing recordings can\'t be uploaded. Never use a cloned voice to trick or impersonate anyone; in many places that\'s illegal. Every clip has an inaudible AI watermark. Delete a voice anytime.') },
     { id: 'connect', icon: '🔌', title: 'Connect real agents', time: '5 min', body: md('Demo mode is pretend. To make your agents do real work:\n\n1. Choose a brain: install **Ollama** (free, ollama.com) and run `ollama pull qwen3:8b`, **or** get a Claude key at console.anthropic.com, **or** a free OpenRouter/Groq key.\n2. On a computer with Node.js 18+, open the `agent-station/server` folder and run:\n```\nnpm install\nnpm start\n```\n(For Claude: `ANTHROPIC_API_KEY=your-key npm start`. For OpenRouter: `OPENROUTER_API_KEY=… npm start`.)\n3. Open the address it prints (on your phone, use the computer\'s Wi-Fi IP, e.g. `http://192.168.1.20:8787`).\n4. The app connects automatically. Install it: **Share → Add to Home Screen**.\n\nRunning it somewhere public? Set `STATION_TOKEN` and enter the same token in ⚙️ Settings.') },
     { id: 'safety', icon: '🛡️', title: 'Safety & costs', time: '1 min', body: md('- **Costs:** Ollama and other free models cost nothing. Claude tasks use tokens billed to your API key. The Spend tile shows an estimate. Research tasks cost more than short writing tasks.\n- **Check facts:** agents cite sources — open the links for anything important.\n- **Privacy:** don\'t paste passwords, card numbers or other people\'s private data.\n- **Stay in charge:** agents only write files inside the station; they can\'t send emails or buy things.') },
   ];
@@ -643,7 +654,13 @@
         <div><span>Skills learned</span><b>${skills.length}</b></div>
         <div><span>Memories</span><b>${S.memories.filter((m) => m.agent === a.id).length}</b></div>
       </div>
-      ${S.voices?.length ? `<label class="field">🗣️ Speaking voice<select data-change="agent-voice" data-id="${esc(a.id)}"><option value="">Device voice</option>${S.voices.map((v) => `<option value="${esc(v.id)}" ${v.id === a.voiceId ? 'selected' : ''}>🧬 ${esc(v.name)}</option>`).join('')}</select></label>` : ''}
+      <label class="field">🗣️ Speaking voice<select data-change="agent-voice" data-id="${esc(a.id)}">
+        <option value="">Device voice${lookOf(a) && CH.byId(a.avatar) ? ` (${esc(a.name)}'s pitch)` : ''}</option>
+        ${S.studio?.voices?.length ? `<optgroup label="Studio voices (free · Apache-2.0)">${S.studio.voices.map((v) => `<option value="studio:${esc(v.id)}" ${`studio:${v.id}` === a.voiceId ? 'selected' : ''}>${esc(v.name)}: ${esc(v.accent)}, ${esc(v.style)}</option>`).join('')}</optgroup>` : ''}
+        ${S.voices?.length ? `<optgroup label="Cloned voices">${S.voices.map((v) => `<option value="${esc(v.id)}" ${v.id === a.voiceId ? 'selected' : ''}>🧬 ${esc(v.name)}</option>`).join('')}</optgroup>` : ''}
+        ${a.voiceId && !studioVoice(a.voiceId) && !S.voices?.some((v) => v.id === a.voiceId) ? `<option value="${esc(a.voiceId)}" selected>${esc(a.voiceId)} (voice server offline)</option>` : ''}
+      </select></label>
+      ${!S.studio?.voices?.length && isServer() ? '<p class="muted tiny" style="margin:-8px 0 12px">Want natural free voices? See Brain → Connect → Voice.</p>' : ''}
       <label class="field">🧠 AI model<select data-change="agent-model" data-id="${esc(a.id)}">${modelOptions(a.modelChosen, true)}</select></label>
       <div class="row"><button class="btn" data-act="task-for" data-id="${esc(a.id)}">✍️ Give a task</button><button class="btn ghost" data-act="voice-open" data-id="${esc(a.id)}">🎙️ Talk</button></div>
       ${a.instructions ? `<h2>How ${esc(a.name)} works</h2><div class="card"><p class="muted">${esc(a.instructions)}</p></div>` : ''}
@@ -715,6 +732,8 @@
     if (sh.kind === 'builder') html = builderSheet();
     if (sh.kind === 'voice') html = voiceSheet();
     if (sh.kind === 'clone') html = cloneSheet();
+    if (sh.kind === 'gallery') html = gallerySheet();
+    if (sh.kind === 'character') { const c = CH.byId(sh.id); if (!c) return closeSheet(); html = characterSheet(c); }
     if (sh.kind === 'events') html = `<h3>All activity</h3><div class="feed" style="margin-top:12px">${eventsHtml(S.events)}</div>`;
     if (sh._last !== html) {
       $('#sheetBody').innerHTML = html; sh._last = html;
@@ -817,7 +836,20 @@
     player.play().catch(() => {});
   }
   const cloneReady = () => isServer() && !!S.clone?.available;
-  const voiceOf = (agentId) => { const v = agentById(agentId)?.voiceId; return v && S.voices?.some((x) => x.id === v) ? v : ''; };
+  const studioReady = () => isServer() && !!S.studio?.available;
+  const studioVoice = (id) => S.studio?.voices?.find((v) => `studio:${v.id}` === id);
+  // The server voice an agent should use right now, or '' for the device voice.
+  const voiceOf = (agentId) => {
+    const v = agentById(agentId)?.voiceId || '';
+    if (v.startsWith('studio:')) return studioReady() ? v : '';
+    return v && cloneReady() && S.voices?.some((x) => x.id === v) ? v : '';
+  };
+  const voiceLabel = (v) => {
+    if (!v) return 'Device voice';
+    if (v.startsWith('studio:')) { const sv = studioVoice(v); return sv ? `${sv.name} (${sv.accent}, studio)` : v.slice(7); }
+    const c = S.voices?.find((x) => x.id === v); return c ? `🧬 ${c.name}` : 'Device voice';
+  };
+  const pitchOf = (agentId) => CH.byId(agentById(agentId)?.avatar)?.pitch || 1;
   const splitSpeech = (text, max = 220) => {
     const parts = text.match(/[^.!?]+[.!?]*\s*/g) || [text];
     const chunks = []; let cur = '';
@@ -831,7 +863,7 @@
     const fetchClip = (chunk) => {
       const headers = { 'Content-Type': 'application/json' };
       if (cfg.token) headers.Authorization = 'Bearer ' + cfg.token;
-      return fetch(apiUrl('speak'), { method: 'POST', headers, body: JSON.stringify({ text: chunk, voice: voiceId, language: voiceCfg.lang.slice(0, 2) }) })
+      return fetch(apiUrl('speak'), { method: 'POST', headers, body: JSON.stringify({ text: chunk, voice: voiceId, language: voiceCfg.lang.slice(0, 2), speed: +voiceCfg.rate || 1 }) })
         .then(async (r) => { if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`); return r.blob(); });
     };
     const chunks = splitSpeech(text, 260);
@@ -841,7 +873,7 @@
       if (i + 1 < chunks.length) next = fetchClip(chunks[i + 1]);
       if (id !== vc.speakId) return;
       const url = URL.createObjectURL(blob);
-      await new Promise((res) => { player.onended = player.onerror = res; player.src = url; player.playbackRate = +voiceCfg.rate || 1; player.play().catch(res); });
+      await new Promise((res) => { player.onended = player.onerror = res; player.src = url; player.playbackRate = voiceId.startsWith('studio:') ? 1 : +voiceCfg.rate || 1; player.play().catch(res); });
       URL.revokeObjectURL(url);
       if (id !== vc.speakId) return;
     }
@@ -850,19 +882,19 @@
   function speak(text, agentId) {
     if (!text) return Promise.resolve();
     const id = ++vc.speakId;
-    const cloned = agentId && cloneReady() ? voiceOf(agentId) : '';
+    const cloned = agentId ? voiceOf(agentId) : '';
     if (cloned) {
       if (canTTS) speechSynthesis.cancel();
       return speakCloned(text, cloned, id).catch((e) => {
         if (id !== vc.speakId) return;
         toast(`Cloned voice unavailable (${e.message}). Using the device voice.`, 'bad');
-        return speakDevice(text, ++vc.speakId);
+        return speakDevice(text, ++vc.speakId, pitchOf(agentId));
       });
     }
-    return speakDevice(text, id);
+    return speakDevice(text, id, agentId ? pitchOf(agentId) : 1);
   }
 
-  function speakDevice(text, id) {
+  function speakDevice(text, id, pitch = 1) {
     if (!canTTS) return Promise.resolve();
     speechSynthesis.cancel();
     const chunks = splitSpeech(text); // sentence by sentence: some browsers cut off long utterances
@@ -871,7 +903,7 @@
       if (id !== vc.speakId) return res();
       const u = new SpeechSynthesisUtterance(chunk.trim());
       if (v) u.voice = v;
-      u.lang = v?.lang || voiceCfg.lang; u.rate = +voiceCfg.rate || 1;
+      u.lang = v?.lang || voiceCfg.lang; u.rate = +voiceCfg.rate || 1; u.pitch = pitch;
       u.onend = u.onerror = () => res();
       speechSynthesis.speak(u);
     })), Promise.resolve());
@@ -1018,6 +1050,43 @@
     </div>`;
   }
 
+  /* ------------------------------------------------------- characters */
+  function gallerySheet() {
+    const tags = [...new Set(CH.CHARACTERS.map((c) => c.tag))];
+    return `<h3>✨ Character gallery</h3>
+      <p class="muted">Original characters you can add as agents. Free to use: the characters and avatars are CC0, and their studio voices are Apache-2.0.</p>
+      <button class="card gcard custom" data-act="custom-agent"><span class="emo">✏️</span><div class="grow"><b>Create your own</b><p class="muted tiny">Pick a look, name and job yourself</p></div><span class="muted">›</span></button>
+      ${tags.map((t) => `<h2>${esc(t)}</h2><div class="ggrid">${CH.CHARACTERS.filter((c) => c.tag === t).map((c) => `
+        <button class="card gcard" data-act="character" data-id="${c.id}">${charAvatar(c, 'lg')}<b>${esc(c.name)}</b><span class="muted tiny">${esc(c.role)}</span>
+        ${S.agents.some((a) => a.avatar === c.id) ? '<span class="mbadge free">ON STATION</span>' : ''}</button>`).join('')}</div>`).join('')}
+      <p class="muted tiny center" style="margin-top:14px">All characters were made for Agent Station and released under CC0: use, change and share them freely.</p>`;
+  }
+
+  function characterSheet(c) {
+    const sv = S.studio?.voices?.find((v) => v.id === c.voice);
+    const voiceLine = studioReady() && sv ? `🎙️ Voice: <b>${esc(sv.name)}</b>, ${esc(sv.accent)}, ${esc(sv.style)} <span class="mbadge free">FREE</span>` : `🎙️ Voice: your device's voice${S.mode === 'demo' || !isServer() ? '' : ' (install studio voices for a natural voice)'}`;
+    return `<div class="charsheet">
+      <div class="center">${charAvatar(c, 'xl')}</div>
+      <h3 class="center">${esc(c.name)}</h3>
+      <p class="muted center" style="margin:0">${esc(c.role)} · ${esc(c.vibe)}</p>
+      <div class="card quote">“${esc(c.greeting)}”</div>
+      <p class="tiny" style="margin:0">${voiceLine}</p>
+      <button class="btn ghost" data-act="char-hear" data-id="${c.id}">▶ Hear ${esc(c.name)}</button>
+      <details class="card"><summary class="tiny"><b>How ${esc(c.name)} works</b></summary><p class="muted tiny">${esc(c.instructions)}</p></details>
+      <label class="field">AI model<select id="charModel">${modelOptions('', true)}</select></label>
+      <button class="btn" data-act="char-add" data-id="${c.id}">+ Add ${esc(c.name)} to my station</button>
+      <p class="muted tiny center">Free to use under CC0 · you can rename or edit it later</p>
+    </div>`;
+  }
+
+  async function addCharacter(id) {
+    const c = CH.byId(id); if (!c) return;
+    const station = S.stations.some((s) => s.id === c.station) ? c.station : S.stations[0]?.id;
+    const voiceId = studioReady() && S.studio.voices.some((v) => v.id === c.voice) ? `studio:${c.voice}` : '';
+    const a = await act(() => call('POST', 'agents', { name: c.name, role: c.role, station, instructions: c.instructions, avatar: c.id, voiceId, model: $('#charModel')?.value || '' }), `${c.name} joined your station 🎉`);
+    if (a) { closeSheet(); if (ui.tab !== 'station') go('station'); setTimeout(() => openSheet('agent', a.id), 300); }
+  }
+
   /* ---------------------------------------------------------- cloning */
   const CLONE_SCRIPT = (speaker) => `I, ${speaker || '[your name]'}, agree to let my Agent Station assistants speak with a copy of my voice. ` +
     'The quick brown fox jumps over the lazy dog. On sunny mornings I like to walk to the market, buy fresh bread and a little coffee, and plan the day ahead. ' +
@@ -1108,12 +1177,22 @@
     } catch (e) { cl.saving = false; renderSheet(); toast(e.message, 'bad'); }
   }
 
+  function studioCardHtml() {
+    const ready = studioReady();
+    return `<div class="card" style="margin-top:10px">
+      <div class="wf-head"><span class="emo">🎧</span><div class="grow"><b>Studio voices</b> <span class="mbadge free">FREE · APACHE-2.0</span><p class="muted tiny">14 natural voices from Kokoro, an open-source model. Free for personal and commercial use, and runs on your computer, even without a graphics card.</p></div></div>
+      ${ready ? `<div class="vgrid">${S.studio.voices.map((v) => `<button class="vchip" data-act="studio-preview" data-id="${esc(v.id)}"><b>▶ ${esc(v.name)}</b><span class="muted tiny">${esc(v.accent)} · ${esc(v.style)}</span></button>`).join('')}</div>
+        <p class="muted tiny" style="margin:8px 0 0">Give an agent one of these: tap the agent → Speaking voice.</p>`
+      : `<p class="muted tiny" style="margin:8px 0 0">${S.mode === 'demo' ? '⚪ Needs your station server. In demo mode agents use your device voice.' : '⚪ Not running. On the server computer: <code>cd server/voice-clone</code>, <code>pip install kokoro</code>, <code>python voice_server.py</code>'}</p>`}
+    </div>`;
+  }
+
   function cloneCardHtml() {
     const voices = S.voices || [];
     const ready = cloneReady();
     return `<div class="card" style="margin-top:10px">
       <div class="wf-head"><span class="emo">🧬</span><div class="grow"><b>Voice cloner</b> <span class="mbadge free">FREE · OPEN SOURCE</span><p class="muted tiny">Give agents a real voice: yours, or someone who agreed. Runs on your computer with Chatterbox.</p></div></div>
-      <p class="muted tiny" style="margin:8px 0">${ready ? `✅ Cloner running on ${esc(S.clone.device || 'your computer')}${S.clone.device === 'cpu' ? ' (CPU: replies take a few seconds per sentence)' : ''}` : S.mode === 'demo' ? '⚪ Needs your station server. Voice cloning doesn\'t run in demo mode.' : '⚪ Cloner not running. On the server computer: <code>cd server/voice-clone</code>, <code>pip install -r requirements.txt</code>, <code>python clone_server.py</code>'}</p>
+      <p class="muted tiny" style="margin:8px 0">${ready ? `✅ Cloner running on ${esc(S.clone.device || 'your computer')}${S.clone.device === 'cpu' ? ' (CPU: replies take a few seconds per sentence)' : ''}` : S.mode === 'demo' ? '⚪ Needs your station server. Voice cloning doesn\'t run in demo mode.' : '⚪ Cloning not running. On the server computer: <code>cd server/voice-clone</code>, <code>pip install -r requirements.txt</code>, <code>python voice_server.py</code>'}</p>
       ${voices.map((v) => `<div class="mem vrow"><span class="emo">🗣️</span><div class="grow"><b>${esc(v.name)}</b><p class="muted tiny">Speaker: ${esc(v.speaker)} · ${v.seconds}s sample · ${ago(v.createdAt)} · used by ${S.agents.filter((a) => a.voiceId === v.id).map((a) => esc(a.name)).join(', ') || 'no agent yet'}</p></div>
         <button class="icon-btn" data-act="clone-preview" data-id="${esc(v.id)}" aria-label="Preview" ${ready ? '' : 'disabled'}>▶</button>
         <button class="icon-btn" data-act="clone-del" data-id="${esc(v.id)}" aria-label="Delete voice">✕</button></div>`).join('')}
@@ -1133,7 +1212,7 @@
       <label class="field">Speaking speed: <b>${(+voiceCfg.rate).toFixed(1)}×</b><input type="range" min="0.6" max="1.6" step="0.1" value="${esc(voiceCfg.rate)}" data-change="voice-rate"></label>
       <label class="hf"><input type="checkbox" data-change="read-results" ${voiceCfg.readResults ? 'checked' : ''}> Read every finished task aloud</label>
       <button class="btn ghost" data-act="voice-test" style="margin-top:10px">🔊 Test voice</button>` : ''}
-    </div>${cloneCardHtml()}`;
+    </div>${studioCardHtml()}${cloneCardHtml()}`;
   }
 
   async function dictate() {
@@ -1229,7 +1308,25 @@
     'new-flow': () => { ui.builder = { name: '', description: '', input: '', steps: [{ name: '', agent: S.agents[0]?.id, instructions: '' }, { name: '', agent: S.agents[1]?.id || S.agents[0]?.id, instructions: '' }] }; openSheet('builder'); },
     'add-step': () => { syncBuilder(); ui.builder.steps.push({ name: '', agent: S.agents[0]?.id, instructions: '' }); renderSheet(); },
     'rm-step': (i) => { syncBuilder(); ui.builder.steps.splice(+i, 1); renderSheet(); },
-    'new-agent': () => openSheet('form', null, `<form data-form="agent"><h3>➕ Add an agent</h3><p class="muted">Give it a name, a job and a few sentences on how to work. Tap a preset to start.</p>
+    'new-agent': () => openSheet('gallery'),
+    character: (id) => openSheet('character', id),
+    'char-add': (id) => addCharacter(id),
+    'char-hear': (id) => {
+      unlockAudio();
+      const c = CH.byId(id); if (!c) return;
+      const sid = ++vc.speakId;
+      if (studioReady() && S.studio.voices.some((v) => v.id === c.voice)) speakCloned(c.greeting, `studio:${c.voice}`, sid).catch((e) => { toast(e.message, 'bad'); speakDevice(c.greeting, ++vc.speakId, c.pitch); });
+      else speakDevice(c.greeting, sid, c.pitch);
+    },
+    'studio-preview': (id) => {
+      unlockAudio();
+      const v = S.studio?.voices?.find((x) => x.id === id); if (!v) return;
+      speakCloned(`Hi, I'm ${v.name}. I could be the voice of one of your agents.`, `studio:${id}`, ++vc.speakId).catch((e) => toast(e.message, 'bad'));
+    },
+    'pick-look': (id) => { const f = $('#sheetBody form[data-form=agent]'); if (!f) return; f.avatar.value = id; $$('.look', f).forEach((b) => b.classList.toggle('active', b.dataset.id === id)); },
+    'custom-agent': () => openSheet('form', null, `<form data-form="agent"><h3>✏️ Create your own agent</h3><p class="muted">Pick a look, give it a name and a job, and a few sentences on how to work.</p>
+      <input type="hidden" name="avatar" value="">
+      <div class="looks">${[['', null], ...CH.CHARACTERS.map((c) => [c.id, c])].map(([id, c]) => `<button type="button" class="look ${id ? '' : 'active'}" data-act="pick-look" data-id="${id}" aria-label="${c ? esc(c.name) + ' look' : 'Letter tile'}">${c ? charAvatar(c, 'sm') : '<span class="avatar sm" style="background:#38e8ff">A</span>'}</button>`).join('')}</div>
       <div class="chips" style="margin-bottom:12px">${ROLE_PRESETS.map((p, i) => `<button type="button" class="chip" data-act="preset" data-id="${i}">${esc(p.role)}</button>`).join('')}</div>
       <label class="field">Name<input name="name" required maxlength="40" placeholder="e.g. Nova"></label>
       <label class="field">Role<input name="role" maxlength="60" placeholder="e.g. Customer support helper"></label>
@@ -1317,7 +1414,7 @@
       if (ok) { closeSheet(); if (ui.tab !== 'flows') go('flows'); }
     },
     async agent(f) {
-      const ok = await act(() => call('POST', 'agents', { name: f.name.value.trim(), role: f.role.value.trim(), station: f.station.value, instructions: f.instructions.value.trim(), model: f.model.value }), 'Agent added 🎉');
+      const ok = await act(() => call('POST', 'agents', { name: f.name.value.trim(), role: f.role.value.trim(), station: f.station.value, instructions: f.instructions.value.trim(), model: f.model.value, avatar: f.avatar?.value || '' }), 'Agent added 🎉');
       if (ok) closeSheet();
     },
     async skill(f) {

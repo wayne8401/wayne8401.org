@@ -43,15 +43,20 @@ Tap **🎙️** at the top of the app (or **Talk** on an agent) and just speak. 
 
 It's free. Speech is recognized by your phone (Safari, Chrome, Edge) and spoken with its built-in voices. For browsers without speech recognition (e.g. Firefox), the server can transcribe with open-source **Whisper**: set `WHISPER_URL` to your own Whisper server (e.g. [Speaches](https://github.com/speaches-ai/speaches), free and private), or set `GROQ_API_KEY` to use Groq's free Whisper tier.
 
-### Free voice cloner
-Agents can also speak in a **cloned voice**, such as your own, using [Chatterbox](https://github.com/resemble-ai/chatterbox) (open-source, MIT). It runs on your computer and needs about 20 seconds of speech. Start it next to the station (setup in `server/voice-clone/README.md`):
+### Characters & free voices
+Tap **✨ Add from gallery** on the Station tab for 12 ready-made **original characters** (Novi, Zipp, Professor Hootley, Kit, Confetti, Luma, Pip, Mira, Wrenna, Rova, Basil, Calma), each with its own personality, avatar and suggested voice. The characters and their avatar art (`characters.js`) were made for this project and are released under **CC0**: use, change and share them freely, even commercially.
 
+**Studio voices:** 14 natural voices from [Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M) (Apache-2.0, free for personal and commercial use). They run on your computer, quickly even on CPU.
+
+**Voice cloning:** clone a consented voice with [Chatterbox](https://github.com/resemble-ai/chatterbox) (MIT). A voice can only be created from a live in-app recording of the speaker reading a consent statement; the station stores who consented and when; Chatterbox watermarks its output; and voices can be deleted anytime. Only clone your own voice or someone who agreed, and never use it to impersonate or deceive.
+
+Both run in one small service (setup in `server/voice-clone/README.md`):
 ```bash
-cd agent-station/server/voice-clone && pip install -r requirements.txt && python clone_server.py
+cd agent-station/server/voice-clone
+pip install kokoro                  # studio voices (add: pip install -r requirements.txt for cloning)
+python voice_server.py
 ```
-Then **Brain → Connect → Voice → Clone a voice**, and pick the voice for an agent (tap the agent → Speaking voice). A GPU or Apple Silicon is fast; CPU works but takes a few seconds per sentence.
-
-**Consent safeguards:** a voice can only be created by recording live in the app while the speaker reads a consent statement (no uploading existing clips); the station stores who consented and when; every generated clip carries Chatterbox's inaudible AI watermark; and voices can be deleted at any time. Only clone your own voice or someone who agreed, and never use it to impersonate or deceive.
+Then pick voices in **Brain → Connect → Voice**, or per agent (tap the agent → Speaking voice). Without the voice server, agents use the device's voice at their character's pitch.
 
 ## What your agents can do
 - **Real work:** search the web, read pages, and save deliverables (reports, drafts, plans) as files you open in the app.
@@ -89,7 +94,7 @@ Open the address it prints. On your phone, use your computer's Wi-Fi IP, e.g. `h
 | `OPENAI_COMPAT_URL` / `OPENAI_COMPAT_KEY` | none | Any other OpenAI-compatible server |
 | `DEFAULT_MODEL` | auto | e.g. `ollama:qwen3:8b` (you can also choose in the app) |
 | `WHISPER_URL` / `WHISPER_MODEL` | none | Your OpenAI-compatible Whisper server for voice transcription (otherwise Groq if `GROQ_API_KEY` is set) |
-| `CLONE_URL` | `http://127.0.0.1:8890` | Where the voice cloner (`voice-clone/clone_server.py`) runs |
+| `VOICE_URL` | `http://127.0.0.1:8890` | Where the voice server (`voice-clone/voice_server.py`) runs |
 | `SEARXNG_URL` | none | Your SearXNG instance for free web search (otherwise DuckDuckGo) |
 | `PORT` | `8787` | Port to listen on |
 | `STATION_TOKEN` | none | Require this token from the app. Set it if the server is reachable from the internet, and enter the same token in ⚙️ Settings |
@@ -103,7 +108,7 @@ Open the address it prints. On your phone, use your computer's Wi-Fi IP, e.g. `h
 - Agents are told not to save secrets in memory. Don't paste passwords or card numbers into prompts.
 
 ## How it fits together
-- `index.html`, `app.js`, `styles.css`: the mobile app (no build step). `sw.js` and `manifest.webmanifest` make it installable.
+- `index.html`, `app.js`, `styles.css`, `characters.js` (CC0 characters and avatar art): the mobile app (no build step). `sw.js` and `manifest.webmanifest` make it installable.
 - `server/server.mjs`: runs each task as a tool-use loop (memory, skills, files, web, plugins, connectors), serves the app, and exposes an API under `/api/` that the app polls.
 - `server/providers.mjs`: Claude plus OpenAI-compatible providers (Ollama, OpenRouter, Groq, custom) and model discovery.
 - `server/connectors.mjs`: MCP client and connector catalog. `server/plugins.mjs` and `server/plugins/`: plugin loader and built-in plugins. `server/webtools.mjs`: free web search and fetch. `server/voice.mjs`: Whisper transcription for voice chat.

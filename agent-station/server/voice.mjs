@@ -34,16 +34,20 @@ export async function transcribe(audio, mime = 'audio/webm', lang = '') {
 }
 
 // ---------------------------------------------------------------- cloning
-// Talks to the local Chatterbox service (voice-clone/clone_server.py).
-const CLONE_URL = (env.CLONE_URL || 'http://127.0.0.1:8890').replace(/\/$/, '');
-let health = { at: 0, ok: false, device: '', multilingual: false };
+// Talks to the local voice server (voice-clone/voice_server.py):
+// Kokoro studio voices (Apache-2.0) and Chatterbox cloning (MIT).
+const CLONE_URL = (env.VOICE_URL || env.CLONE_URL || 'http://127.0.0.1:8890').replace(/\/$/, '');
+const OFF = { ok: false, device: '', multilingual: false, studio: false, clone: false, studioVoices: [] };
+let health = { at: 0, ...OFF };
 
 export async function cloneStatus() {
   if (Date.now() - health.at < 20000) return health;
   try {
     const j = await (await fetch(`${CLONE_URL}/health`, { signal: AbortSignal.timeout(1500) })).json();
-    health = { at: Date.now(), ok: !!j.ok, device: j.device || '', multilingual: !!j.multilingual };
-  } catch { health = { at: Date.now(), ok: false, device: '', multilingual: false }; }
+    // Older servers (clone-only) didn't report engines; treat them as cloning-only.
+    health = { at: Date.now(), ok: !!j.ok, device: j.device || '', multilingual: !!j.multilingual,
+      studio: !!j.studio, clone: j.clone ?? !!j.ok, studioVoices: Array.isArray(j.studioVoices) ? j.studioVoices : [] };
+  } catch { health = { at: Date.now(), ...OFF }; }
   return health;
 }
 
@@ -64,12 +68,12 @@ export function checkWav(buf) {
   return secs;
 }
 
-export async function cloneSpeak(text, voice, language = 'en') {
+export async function cloneSpeak(text, voice, language = 'en', speed = 1) {
   const res = await fetch(`${CLONE_URL}/speak`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text: String(text).slice(0, 1000), voice, language }),
+    body: JSON.stringify({ text: String(text).slice(0, 1000), voice, language, speed }),
     signal: AbortSignal.timeout(180000),
-  }).catch(() => { throw Object.assign(new Error('The voice cloner is not running. Start it with: python clone_server.py (see server/voice-clone/README.md)'), { status: 503 }); });
+  }).catch(() => { throw Object.assign(new Error('The voice server is not running. Start it with: python voice_server.py (see server/voice-clone/README.md)'), { status: 503 }); });
   if (!res.ok) { const j = await res.json().catch(() => ({})); throw Object.assign(new Error(j.error || `Voice cloner error ${res.status}`), { status: 502 }); }
   return Buffer.from(await res.arrayBuffer());
 }

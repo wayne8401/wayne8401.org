@@ -123,6 +123,8 @@ function event(level, agent, msg) {
 }
 
 const agentById = (id) => state.agents.find((a) => a.id === id);
+// A speaking voice is a consented cloned voice ("voice-…") or a Kokoro studio voice ("studio:af_heart").
+const validVoice = (v) => (typeof v === 'string' && (state.voices.some((x) => x.id === v) || /^studio:[ab][fm]_[a-z]{2,20}$/.test(v)) ? v : '');
 const slug = (s) => String(s).toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60);
 
 /* ------------------------------------------------------------------ tools */
@@ -528,7 +530,8 @@ function statusView(files, clone = {}) {
     models: models.models, providers: Object.entries(PROVIDERS).map(([id, p]) => ({ id, label: p.label, free: p.free, setup: p.setup, ...(models.providers[id] || { ready: false, note: '' }) })),
     connectors: connectors?.view() || [],
     voice: { stt: !!sttConfig(), sttProvider: sttConfig()?.provider || '' },
-    clone: { available: !!clone.ok, device: clone.device || '', multilingual: !!clone.multilingual },
+    clone: { available: !!(clone.ok && clone.clone), device: clone.device || '', multilingual: !!clone.multilingual },
+    studio: { available: !!(clone.ok && clone.studio), device: clone.device || '', voices: clone.studioVoices || [] },
     voices: (state.voices || []).map(({ id, name, speaker, createdAt, seconds }) => ({ id, name, speaker, createdAt, seconds })),
     plugins: plugins.map((p) => ({ name: p.name, label: p.label, icon: p.icon, description: p.description, enabled: pluginOn(p) })),
     stations: state.stations,
@@ -537,7 +540,7 @@ function statusView(files, clone = {}) {
       const u = state.usage[a.id] || { tokens: 0, cost: 0 };
       const queued = state.tasks.filter((t) => t.agent === a.id && t.status === 'queued').length;
       return {
-        id: a.id, name: a.name, role: a.role, station: a.station, instructions: a.instructions, model: agentModel(a), modelChosen: a.model || '', voiceId: a.voiceId || '',
+        id: a.id, name: a.name, role: a.role, station: a.station, instructions: a.instructions, model: agentModel(a), modelChosen: a.model || '', voiceId: a.voiceId || '', avatar: a.avatar || '',
         status: l.status === 'running' ? 'running' : l.status === 'error' ? 'error' : queued ? 'waiting' : 'idle',
         task: l.status === 'running' ? l.task : l.status === 'error' ? l.task : queued ? `${queued} task(s) queued` : 'Ready for a task',
         progress: l.progress || 0, tokens: u.tokens, cost: +u.cost.toFixed(4),
@@ -575,7 +578,7 @@ function send(res, status, data, headers = {}) {
   res.end(isBuf ? data : JSON.stringify(data));
 }
 
-const STATIC = { 'index.html': 'text/html', 'app.js': 'text/javascript', 'styles.css': 'text/css', 'sw.js': 'text/javascript', 'manifest.webmanifest': 'application/manifest+json', 'icon.svg': 'image/svg+xml' };
+const STATIC = { 'index.html': 'text/html', 'app.js': 'text/javascript', 'characters.js': 'text/javascript', 'styles.css': 'text/css', 'sw.js': 'text/javascript', 'manifest.webmanifest': 'application/manifest+json', 'icon.svg': 'image/svg+xml' };
 
 const routes = [
   ['GET', /^\/api\/status$/, async () => statusView(await listFiles(), await cloneStatus())],
@@ -601,13 +604,15 @@ const routes = [
     if (!b.name) throw httpError(400, 'Agent needs a name');
     let id = slug(b.name) || uid('agent'); if (agentById(id)) id = `${id}-${crypto.randomBytes(2).toString('hex')}`;
     const station = state.stations.some((s) => s.id === b.station) ? b.station : state.stations[0].id;
-    const a = { id, name: String(b.name).slice(0, 40), role: String(b.role || 'Assistant').slice(0, 60), station, instructions: String(b.instructions || '').slice(0, 4000), model: String(b.model || '') };
+    const a = { id, name: String(b.name).slice(0, 40), role: String(b.role || 'Assistant').slice(0, 60), station, instructions: String(b.instructions || '').slice(0, 4000), model: String(b.model || ''),
+      voiceId: validVoice(b.voiceId), avatar: /^[a-z0-9-]{1,30}$/.test(b.avatar || '') ? b.avatar : '' };
     state.agents.push(a); event('success', a.id, `${a.name} joined ${station}`); save(); return a;
   }],
   ['PATCH', /^\/api\/agents\/([\w-]+)$/, async ([id], b) => {
     const a = agentById(id); if (!a) throw httpError(404, 'No such agent');
     if ('model' in b) { a.model = String(b.model || ''); event('info', a.id, `${a.name} now uses ${agentModel(a)}`); }
-    if ('voiceId' in b) { a.voiceId = state.voices.some((v) => v.id === b.voiceId) ? b.voiceId : ''; event('info', a.id, a.voiceId ? `${a.name} now speaks with the “${state.voices.find((v) => v.id === a.voiceId).name}” voice` : `${a.name} uses the device voice`); }
+    if ('voiceId' in b) { a.voiceId = validVoice(b.voiceId); event('info', a.id, a.voiceId ? `${a.name} has a new speaking voice` : `${a.name} uses the device voice`); }
+    if ('avatar' in b) a.avatar = /^[a-z0-9-]{0,30}$/.test(b.avatar || '') ? b.avatar || '' : a.avatar;
     for (const k of ['name', 'role', 'instructions']) if (typeof b[k] === 'string' && b[k].trim()) a[k] = b[k].slice(0, k === 'instructions' ? 4000 : 60);
     save(); return a;
   }],
@@ -633,8 +638,8 @@ const routes = [
     event('info', null, `Deleted cloned voice “${v.name}” and its recording`); save(); return { ok: true };
   }],
   ['POST', /^\/api\/speak$/, async (_, b) => {
-    const v = state.voices.find((x) => x.id === b.voice); if (!v) throw httpError(404, 'No such voice');
-    return { __binary: await cloneSpeak(b.text, v.id, String(b.language || 'en').slice(0, 2)), type: 'audio/wav' };
+    const id = validVoice(b.voice); if (!id) throw httpError(404, 'No such voice');
+    return { __binary: await cloneSpeak(b.text, id, String(b.language || 'en').slice(0, 2), Math.max(0.5, Math.min(+b.speed || 1, 2))), type: 'audio/wav' };
   }],
   ['POST', /^\/api\/skills$/, async (_, b) => {
     const id = slug(b.name); if (!id || !b.instructions) throw httpError(400, 'Skill needs a name and instructions');

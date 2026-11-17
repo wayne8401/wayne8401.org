@@ -1097,7 +1097,7 @@
               : `<button class="btn small" data-act="download-model" data-id="${esc(m.model)}" ${d.loading ? 'disabled' : ''} style="margin-top:8px">Download &amp; use</button>`}
           </div>`; }).join('')}</div>
         ${d.error ? `<p class="tiny s-error">${esc(d.error)}</p>` : ''}`
-      : `<div class="card warn"><p class="tiny" style="margin:0">This browser can't run AI models on the phone (it needs <b>WebGPU</b>: a recent <b>Chrome on Android</b>, or <b>Safari on iOS 26+</b>). Use a free online brain below instead.</p></div>`}
+      : `<div class="card warn"><p class="tiny" style="margin:0">This browser can't run AI models on the phone (it needs <b>WebGPU</b>: a recent <b>Chrome on Android</b>, or <b>Safari on iOS 26+</b>). Use a free online brain below instead.</p><p class="muted tiny" style="margin:8px 0 0">Curious? On Android you can try Chrome → <code>chrome://flags</code> → <b>Unsafe WebGPU Support</b> → Enabled → Relaunch. It's experimental and may not work on every phone.</p></div>`}
 
       <h2>🌐 Free online brains</h2>
       <form data-form="keys" class="card">

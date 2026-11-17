@@ -115,7 +115,7 @@
       try {
         const j = await (await fetch(`${OPENAI_BASE.openrouter}/models`, { signal: AbortSignal.timeout(8000) })).json();
         const free = (j.data || []).filter((m) => m.id.endsWith(':free') && (m.supported_parameters || []).includes('tools')).slice(0, 30);
-        free.forEach((m) => add('openrouter', m.id, m.name || m.id, true));
+        free.sort((a, b) => rankFree({ model: a.id }) - rankFree({ model: b.id })).forEach((m) => add('openrouter', m.id, (m.name || m.id).replace(/^[^:]{1,30}:\s*/, '').replace(/\s*\(free\)\s*$/i, '') + ' (free)', true));
         providers.openrouter = { ready: free.length > 0, note: `${free.length} free model(s)` };
       } catch (e) { providers.openrouter = { ready: false, note: `Couldn't list models (${e.message})` }; }
     } else providers.openrouter = { ready: false, note: 'No key' };
@@ -141,9 +141,18 @@
     return modelCache;
   }
 
-  const defaultModel = () => state.settings.defaultModel && modelCache.models.some((m) => m.id === state.settings.defaultModel)
-    ? state.settings.defaultModel
-    : (modelCache.models.find((m) => m.provider === 'device') || modelCache.models.find((m) => m.provider === 'anthropic' && m.model === 'claude-opus-5-5') || modelCache.models[0])?.id || '';
+  // Free models known to handle tools well, best first (matched loosely so new versions still match).
+  const PREFERRED_FREE = [/llama-3\.3-70b/i, /deepseek-(chat|v3)/i, /qwen.*(72b|235b|32b|coder)/i, /gemini.*flash/i, /mistral-small/i, /llama-4/i, /qwen/i, /llama/i];
+  const rankFree = (m) => { const i = PREFERRED_FREE.findIndex((re) => re.test(m.model)); return i < 0 ? 99 : i; };
+  const defaultModel = () => {
+    const ms = modelCache.models;
+    if (state.settings.defaultModel && ms.some((m) => m.id === state.settings.defaultModel)) return state.settings.defaultModel;
+    const pick = ms.find((m) => m.provider === 'device')
+      || ms.find((m) => m.provider === 'anthropic' && m.model === 'claude-opus-5-5')
+      || [...ms.filter((m) => m.provider === 'openrouter' || m.provider === 'groq')].sort((a, b) => rankFree(a) - rankFree(b))[0]
+      || ms[0];
+    return pick?.id || '';
+  };
   const agentModel = (a) => (a.model && modelCache.models.some((m) => m.id === a.model) ? a.model : defaultModel());
 
   /* ------------------------------------------------- on-device runtime */
@@ -341,20 +350,47 @@ ${web}
     if (key) headers.Authorization = `Bearer ${key}`;
     if (provider === 'openrouter') headers['X-Title'] = 'Agent Station';
     const body = { model, messages }; if (tools?.length) { body.tools = tools; body.tool_choice = 'auto'; }
-    const res = await fetch(`${base}/chat/completions`, { method: 'POST', headers, body: JSON.stringify(body) });
-    const j = await res.json().catch(() => null);
-    if (!res.ok) {
-      const msg = j?.error?.message || j?.error || `HTTP ${res.status}`;
-      if (res.status === 401 || res.status === 403) throw new Error(`${provider}: key missing or invalid (${msg})`);
-      if (res.status === 429) throw new Error(`${provider}: rate limited. Free tiers have limits; try again in a minute.`);
+    // Free tiers are often busy: retry rate limits and server hiccups a couple of times.
+    for (let attempt = 0; ; attempt++) {
+      let res, j;
+      try {
+        res = await fetch(`${base}/chat/completions`, { method: 'POST', headers, body: JSON.stringify(body) });
+        j = await res.json().catch(() => null);
+      } catch (e) {
+        if (attempt < 2) { await sleep(2000 * (attempt + 1)); continue; }
+        throw e;
+      }
+      if (res.ok && j?.choices?.length && !j.error) return j;
+      const msg = String(j?.error?.message || j?.error || (res.ok ? 'empty answer' : `HTTP ${res.status}`));
+      const status = res.ok ? (j?.error?.code || 502) : res.status;
+      if (status === 401 || status === 403) throw Object.assign(new Error(`${provider}: key missing or invalid (${msg})`), { code: 'auth' });
+      if ((status === 429 || status >= 500 || msg === 'empty answer') && attempt < 2) {
+        const wait = Math.min(15000, (+res.headers?.get?.('retry-after') || 0) * 1000 || 3000 * (attempt + 1));
+        await sleep(wait); continue;
+      }
+      if (status === 429) throw Object.assign(new Error(`${provider}: this free model is busy right now (rate limited). Try again in a minute, or pick another free model in Brain → Connect.`), { code: 'rate' });
+      if (/tool|function/i.test(msg) && tools?.length) throw Object.assign(new Error(msg), { code: 'no-tools' });
       throw new Error(`${provider} error: ${msg}`);
     }
-    if (!j?.choices?.length) throw new Error(`${provider} returned no answer`);
-    return j;
   }
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const stripThink = (t) => String(t || '').replace(/<think>[\s\S]*?<\/think>/g, '').replace(/<think>[\s\S]*$/, '').trim();
 
   async function runOpenAI(agent, task, provider, model, modelId) {
+    try { return await runOpenAITools(agent, task, provider, model, modelId); }
+    catch (e) {
+      if (e.code !== 'no-tools') throw e;
+      // This model can't do native tool calls: use the simple JSON protocol instead.
+      event('info', agent.id, `${model} has no tool calling; using simple mode`);
+      return runJsonProtocol(agent, task, modelId, model, async (messages) => {
+        const r = await openaiChat(provider, model, messages);
+        addUsage(agent, task, r.usage, modelId);
+        return r.choices[0].message?.content || '';
+      });
+    }
+  }
+
+  async function runOpenAITools(agent, task, provider, model, modelId) {
     const tools = toolDefs().map((t) => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.parameters } }));
     const messages = [{ role: 'system', content: systemPrompt(agent, provider) }, { role: 'user', content: preamble(agent, task.prompt, task.voice) }];
     let final = '';
@@ -386,6 +422,14 @@ ${web}
   }
   async function runDevice(agent, task, model) {
     const engine = await loadDevice(model);
+    return runJsonProtocol(agent, task, `device:${model}`, model, async (messages) => {
+      const r = await engine.chat.completions.create({ messages, temperature: 0.3, max_tokens: 900 });
+      addUsage(agent, task, r.usage, `device:${model}`);
+      return r.choices?.[0]?.message?.content || '';
+    }, 8);
+  }
+
+  async function runJsonProtocol(agent, task, modelId, model, complete, maxTurns = 12) {
     const defs = toolDefs();
     const toolList = defs.map((t) => `- ${t.name}(${Object.keys(t.parameters.properties || {}).join(', ')}): ${t.description}`).join('\n');
     const sys = `${systemPrompt(agent, 'device')}
@@ -400,10 +444,8 @@ You will get the result, then continue. When you are done, reply with ONLY:
 Keep answers concise.${/qwen3/i.test(model) ? ' /no_think' : ''}`;
     const messages = [{ role: 'system', content: sys }, { role: 'user', content: preamble(agent, task.prompt, task.voice, true) }];
     let final = '';
-    for (let turn = 0; turn < 8; turn++) {
-      const r = await engine.chat.completions.create({ messages, temperature: 0.3, max_tokens: 900 });
-      addUsage(agent, task, r.usage, `device:${model}`);
-      const raw = r.choices?.[0]?.message?.content || '';
+    for (let turn = 0; turn < maxTurns; turn++) {
+      const raw = await complete(messages);
       const j = extractJson(raw);
       if (!j || (!j.tool && j.answer === undefined)) return stripThink(raw) || final || '(No written answer.)';
       if (j.answer !== undefined) return String(j.answer);
@@ -412,7 +454,7 @@ Keep answers concise.${/qwen3/i.test(model) ? ' /no_think' : ''}`;
       messages.push({ role: 'user', content: `Result of ${j.tool}:\n${res.content.slice(0, 1800)}\n\nContinue: another tool call, or {"answer": ...} if done.` });
       final = '';
     }
-    return '(Stopped after 8 steps. Try a simpler request or a bigger model.)';
+    return `(Stopped after ${maxTurns} steps. Try a simpler request or a bigger model.)`;
   }
 
   async function runAgent(agent, task) {
@@ -562,6 +604,15 @@ Keep answers concise.${/qwen3/i.test(model) ? ' /no_think' : ''}`;
       const k = keys();
       for (const f of ['anthropic', 'openrouter', 'groq', 'customKey']) if (typeof b[f] === 'string') { if (b[f].trim()) k[f] = b[f].trim(); else delete k[f]; }
       if (typeof b.customUrl === 'string') { const u = b.customUrl.trim(); if (u && !/^https:\/\//.test(u) && !/^http:\/\/(localhost|127\.0\.0\.1)/.test(u)) throw httpError('Custom server must use https://'); if (u) k.customUrl = u; else delete k.customUrl; }
+      // Check new keys right away so a typo shows up now, not on the first task.
+      if (b.openrouter?.trim()) {
+        const r = await fetch('https://openrouter.ai/api/v1/key', { headers: { Authorization: `Bearer ${b.openrouter.trim()}` } }).catch(() => null);
+        if (r && (r.status === 401 || r.status === 403)) throw httpError('That OpenRouter key was rejected. Copy it again from openrouter.ai → Keys (it starts with sk-or-).');
+      }
+      if (b.groq?.trim()) {
+        const r = await fetch(`${OPENAI_BASE.groq}/models`, { headers: { Authorization: `Bearer ${b.groq.trim()}` } }).catch(() => null);
+        if (r && (r.status === 401 || r.status === 403)) throw httpError('That Groq key was rejected. Copy it again from console.groq.com → API Keys.');
+      }
       setKeys(k); const m = await discover(true); return { count: m.models.length };
     }],
     ['POST', /^brain\/device$/, (_, b) => { loadDevice(String(b.model || '')).catch(() => {}); return { ok: true }; }],

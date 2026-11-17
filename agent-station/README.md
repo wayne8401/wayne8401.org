@@ -7,13 +7,13 @@ Open the app, choose **Run them on this phone**, and give your agents a brain:
 
 | Brain | Cost | Notes |
 |---|---|---|
-| **On-device model** (Qwen3, Llama 3.2, Hermes 3 via [WebLLM](https://github.com/mlc-ai/web-llm), Apache-2.0) | Free, private, works offline | One-time 0.9–3.4 GB download. Needs WebGPU: recent Chrome on Android, or Safari on iOS 26+ |
+| **On-device model**: Qwen2.5 0.5B / 1.5B or Qwen3 1.7B (official GGUF builds, Apache-2.0) via [wllama](https://github.com/ngxson/wllama) (llama.cpp in the browser, MIT) | Free, private, works offline | One-time 0.5–1.8 GB download. Runs on the phone's processor in any modern browser (graphics chip used automatically when available). Native tool calling |
 | **OpenRouter** `:free` models | Free (rate-limited) | Paste a free key from openrouter.ai |
 | **Groq** | Free tier | Paste a free key from console.groq.com |
 | **Claude** | Paid per use | Paste a key from console.anthropic.com; adds real web search. Uses the official Anthropic SDK (`vendor/`, MIT) |
 | **Custom** OpenAI-compatible server | Free | Any https endpoint |
 
-Keys are stored only on the phone and sent only to that service. Keep the app open while agents work: phones pause web apps in the background, so the app keeps the screen awake during tasks. On the phone, agents have memory, skills, files, workflows, voice chat, characters, and the calculator/weather/Wikipedia plugins. MCP connectors, studio voices and voice cloning need the optional computer server (below).
+Every brain uses tools natively; models that can't call tools are hidden automatically. Keys are stored only on the phone and sent only to that service. Keep the app open while agents work: phones pause web apps in the background, so the app keeps the screen awake during tasks. On the phone, agents have memory, skills, files, workflows, voice chat, characters, and the calculator/weather/Wikipedia plugins. MCP connectors, studio voices and voice cloning need the optional computer server (below).
 
 ### Get the app onto your phone
 The app is a set of static files, so any free static host works:
@@ -131,7 +131,7 @@ Open the address it prints. On your phone, use your computer's Wi-Fi IP, e.g. `h
 
 ## How it fits together
 - `index.html`, `app.js`, `styles.css`, `characters.js` (CC0 characters and avatar art): the mobile app (no build step).
-- `engine.js`: the on-phone agent engine (agent loop, tools, storage in IndexedDB, WebLLM/OpenRouter/Groq/Claude brains). `vendor/anthropic-sdk.mjs`: the official Anthropic SDK bundled for browsers. `sw.js` and `manifest.webmanifest` make it installable.
+- `engine.js`: the on-phone agent engine (agent loop with native tool calling, storage in IndexedDB, wllama on-device models, OpenRouter/Groq/Claude brains). `_headers`: enables multi-core on-device inference on Netlify/Cloudflare Pages. `vendor/anthropic-sdk.mjs`: the official Anthropic SDK bundled for browsers. `sw.js` and `manifest.webmanifest` make it installable.
 - `server/server.mjs`: runs each task as a tool-use loop (memory, skills, files, web, plugins, connectors), serves the app, and exposes an API under `/api/` that the app polls.
 - `server/providers.mjs`: Claude plus OpenAI-compatible providers (Ollama, OpenRouter, Groq, custom) and model discovery.
 - `server/connectors.mjs`: MCP client and connector catalog. `server/plugins.mjs` and `server/plugins/`: plugin loader and built-in plugins. `server/webtools.mjs`: free web search and fetch. `server/voice.mjs`: Whisper transcription for voice chat.

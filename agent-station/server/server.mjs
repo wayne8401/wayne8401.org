@@ -703,7 +703,7 @@ const server = http.createServer(async (req, res) => {
     // Serve the mobile app itself from the parent folder.
     const name = url.pathname === '/' ? 'index.html' : url.pathname.slice(1);
     if (STATIC[name]) {
-      return send(res, 200, await fs.readFile(path.join(APP_DIR, name)), { 'Content-Type': STATIC[name], 'Cache-Control': 'no-cache' });
+      return send(res, 200, await fs.readFile(path.join(APP_DIR, name)), { 'Content-Type': STATIC[name], 'Cache-Control': 'no-cache', 'Cross-Origin-Opener-Policy': 'same-origin', 'Cross-Origin-Embedder-Policy': 'credentialless' });
     }
     send(res, 404, 'Not found');
   } catch (e) {

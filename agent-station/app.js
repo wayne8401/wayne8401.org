@@ -646,7 +646,7 @@
     { id: 'voice', icon: '🎙️', title: 'Talk to your agents', time: '1 min', body: md('Tap **🎙️** at the top of any screen (or **Talk** on an agent) and just speak.\n\n- The agent works on what you said, then **reads its answer aloud** in a few short sentences. Longer details go into a file you can open.\n- **Hands-free** keeps the conversation going: after each answer it listens again. Say **"goodbye"** to stop.\n- The **🎤** button in the task box lets you dictate a prompt instead of typing.\n- Change the language, voice and speaking speed in **Brain → Connect → Voice**.\n\nIt\'s free: your phone recognizes speech and speaks with its own voices. (Firefox users: the station can transcribe with open-source Whisper instead.)') },
     { id: 'characters', icon: '✨', title: 'Characters & free voices', time: '2 min', body: md('Tap **✨ Add from gallery** on the Station tab to add a ready-made character: **Novi** (research), **Zipp** (fact-checks), **Professor Hootley** (tutor), **Kit** (study buddy), **Confetti** (social posts), **Luma** (stories), **Pip** (budgets), **Mira** (email), **Wrenna** (tech help), **Rova** (travel), **Basil** (cooking) and **Calma** (routines).\n\n**Free to use, no copyright worries:** the characters and avatars were made for Agent Station and are released under **CC0**. Use, change and share them, even commercially.\n\n**Voices:** each character has a suggested **studio voice** from Kokoro, an open-source model licensed **Apache-2.0** (free for any use). Install it on the server computer with `pip install kokoro`, then run `python voice_server.py` in `server/voice-clone`. Without it, characters use your device voice at their own pitch.\n\nChange any agent\'s voice: tap the agent → **Speaking voice**.') },
     { id: 'clone', icon: '🧬', title: 'Clone a voice (free)', time: '2 min', body: md('Your agents can speak with a **cloned voice**, such as your own, so voice chat sounds like a real person.\n\n1. On the server computer, start the free cloner once: `cd server/voice-clone`, `pip install -r requirements.txt`, `python voice_server.py`. It uses **Chatterbox**, an open-source model that runs on your machine.\n2. In **Brain → Connect → Voice**, tap **Clone a voice**, confirm consent, and read the short script aloud (about 20 seconds).\n3. Tap an agent → **Speaking voice** → pick the new voice.\n\n**Rules that matter:** only clone your own voice or someone who agreed. The sample must be recorded live with a spoken consent line, and existing recordings can\'t be uploaded. Never use a cloned voice to trick or impersonate anyone; in many places that\'s illegal. Every clip has an inaudible AI watermark. Delete a voice anytime.') },
-    { id: 'phone', icon: '📱', title: 'Run agents on your phone', time: '2 min', body: md('Agents run **inside this app**: no computer needed. They just need a **brain** (an AI model). Open ⚙️ → **On this phone**, then **Brain → Connect → Set up brains**:\n\n- **On this phone (free, private, offline):** download an open-source model once (about 1–3.5 GB, use Wi-Fi). Needs a recent **Chrome on Android** or **Safari on iOS 26+**. Small models are great for writing, planning and simple lookups.\n- **Free online:** paste a free key from **openrouter.ai** or **console.groq.com**. Bigger, smarter models; needs internet.\n- **Claude:** paste your key for the strongest agent with real web search (paid per use).\n\nYour tasks, memories, skills, files and workflows are saved on the phone. **Keep the app open** while agents work. Phones pause apps in the background, so the app keeps your screen awake during tasks.\n\nConnectors and voice cloning need a computer (see *Connect real agents*).') },
+    { id: 'phone', icon: '📱', title: 'Run agents on your phone', time: '2 min', body: md('Agents run **inside this app**: no computer needed. They just need a **brain** (an AI model). Open ⚙️ → **On this phone**, then **Brain → Connect → Set up brains**:\n\n- **On this phone (free, private, offline):** download a Qwen model once (0.5–1.8 GB, use Wi-Fi). It runs on your phone\'s processor (and graphics chip when available) and uses tools natively. Small models are great for writing, planning and simple lookups.\n- **Free online:** paste a free key from **openrouter.ai** or **console.groq.com**. Bigger, smarter models; needs internet.\n- **Claude:** paste your key for the strongest agent with real web search (paid per use).\n\nYour tasks, memories, skills, files and workflows are saved on the phone. **Keep the app open** while agents work. Phones pause apps in the background, so the app keeps your screen awake during tasks.\n\nConnectors and voice cloning need a computer (see *Connect real agents*).') },
     { id: 'connect', icon: '🔌', title: 'Connect a computer (power mode)', time: '5 min', body: md('Optional: run the station server on a computer for extras the phone can\'t do: **MCP connectors**, **studio voices** and **voice cloning**, and bigger local models via Ollama.\n\n1. Choose a brain: install **Ollama** (free, ollama.com) and run `ollama pull qwen3:8b`, **or** get a Claude key at console.anthropic.com, **or** a free OpenRouter/Groq key.\n2. On a computer with Node.js 18+, open the `agent-station/server` folder and run:\n```\nnpm install\nnpm start\n```\n(For Claude: `ANTHROPIC_API_KEY=your-key npm start`. For OpenRouter: `OPENROUTER_API_KEY=… npm start`.)\n3. Open the address it prints (on your phone, use the computer\'s Wi-Fi IP, e.g. `http://192.168.1.20:8787`).\n4. The app connects automatically. Install it: **Share → Add to Home Screen**.\n\nRunning it somewhere public? Set `STATION_TOKEN` and enter the same token in ⚙️ Settings.') },
     { id: 'safety', icon: '🛡️', title: 'Safety & costs', time: '1 min', body: md('- **Costs:** Ollama and other free models cost nothing. Claude tasks use tokens billed to your API key. The Spend tile shows an estimate. Research tasks cost more than short writing tasks.\n- **Check facts:** agents cite sources — open the links for anything important.\n- **Privacy:** don\'t paste passwords, card numbers or other people\'s private data.\n- **Stay in charge:** agents only write files inside the station; they can\'t send emails or buy things.') },
   ];
@@ -1087,17 +1087,18 @@
       <p class="muted">Agents run <b>inside this app</b>. Pick one or more brains. You can mix them per agent.</p>
 
       <h2>📱 On this phone: free, private, offline</h2>
-      ${d.webgpu ? `<p class="muted tiny" style="margin:-4px 2px 10px">Open-source models run on your phone's graphics chip. One-time download over Wi-Fi, then they work without internet. Small models are great for writing, planning and simple lookups; for deep web research use a bigger online brain.</p>
+      ${d.supported !== false ? `<p class="muted tiny" style="margin:-4px 2px 10px">Qwen models run right on your phone${d.webgpu ? ' (using its graphics chip)' : ''} and use tools natively. Download once over Wi-Fi; after that they work without internet. Keep the app open while it downloads.</p>
         <div class="list">${(d.models || []).map((m) => {
           const done = d.downloaded?.[m.model];
+          const busy = d.loading && (d.loadingModel || ui.loadingModel) === m.model;
           return `<div class="card dmodel">
             <div class="wf-head"><span class="emo">${done ? '✅' : '⬇️'}</span><div class="grow"><b>${esc(m.label)}</b> <span class="muted tiny">${esc(m.size)}</span><p class="muted tiny">${esc(m.note)}</p></div></div>
-            ${d.loading && (d.loadingModel || ui.loadingModel) === m.model ? `<div class="bar dl"><i style="width:${pct}%"></i></div><p class="muted tiny">${pct}% · ${esc((d.text || '').slice(0, 90))}</p>`
+            ${busy ? `<div class="bar dl"><i style="width:${pct}%"></i></div><p class="muted tiny">${pct}% · ${esc((d.text || '').slice(0, 90))}</p>`
               : done ? `<div class="row" style="margin-top:8px"><button class="btn ghost small" data-act="use-model" data-id="device:${esc(m.model)}">${S.defaultModel === 'device:' + m.model ? '★ Default brain' : 'Make default'}</button><button class="btn ghost small" data-act="forget-model" data-id="${esc(m.model)}">Remove</button></div>`
               : `<button class="btn small" data-act="download-model" data-id="${esc(m.model)}" ${d.loading ? 'disabled' : ''} style="margin-top:8px">Download &amp; use</button>`}
           </div>`; }).join('')}</div>
         ${d.error ? `<p class="tiny s-error">${esc(d.error)}</p>` : ''}`
-      : `<div class="card warn"><p class="tiny" style="margin:0">This browser can't run AI models on the phone (it needs <b>WebGPU</b>: a recent <b>Chrome on Android</b>, or <b>Safari on iOS 26+</b>). Use a free online brain below instead.</p><p class="muted tiny" style="margin:8px 0 0">Curious? On Android you can try Chrome → <code>chrome://flags</code> → <b>Unsafe WebGPU Support</b> → Enabled → Relaunch. It's experimental and may not work on every phone.</p></div>`}
+      : `<div class="card warn"><p class="tiny" style="margin:0">This browser is too old to run AI models on the phone. Update Chrome (Android) or Safari (iPhone), or use a free online brain below.</p></div>`}
 
       <h2>🌐 Free online brains</h2>
       <form data-form="keys" class="card">
@@ -1123,7 +1124,7 @@
     return `<div class="welcome"><div class="center"><span class="core big"></span></div>
       <h3 class="center">Welcome to Agent Station</h3>
       <p class="muted center">Your own team of AI agents that research, write, plan, remember and learn. How should they think?</p>
-      <button class="card choice" data-act="welcome-phone"><span class="emo">📱</span><div class="grow"><b>Run them on this phone</b><p class="muted tiny">Free. No computer needed. Download an open-source model or use a free online one.</p></div><span class="mbadge free">RECOMMENDED</span></button>
+      <button class="card choice" data-act="welcome-phone"><span class="emo">📱</span><div class="grow"><b>Run them on this phone</b><p class="muted tiny">Free. No computer needed. Download a free Qwen model, or use a free online one.</p></div><span class="mbadge free">RECOMMENDED</span></button>
       <button class="card choice" data-act="welcome-demo"><span class="emo">🎮</span><div class="grow"><b>Just look around first</b><p class="muted tiny">Demo mode with pretend agents. Switch anytime in ⚙️.</p></div></button>
       <button class="card choice" data-act="welcome-server"><span class="emo">💻</span><div class="grow"><b>Connect my computer</b><p class="muted tiny">For power users running the station server (connectors, voice cloning).</p></div></button>
     </div>`;
@@ -1392,7 +1393,7 @@
     'download-model': (id) => {
       ui.loadingModel = id;
       toast('Downloading… keep the app open (use Wi-Fi)');
-      act(() => call('POST', 'brain/device', { model: id }));
+      act(() => call('POST', 'brain/device', { model: id })).then(() => renderSheet());
       const watch = setInterval(async () => {
         await refresh();
         const d = S.device || {};
@@ -1400,7 +1401,7 @@
           clearInterval(watch); ui.loadingModel = null; renderSheet();
           if (d.downloaded?.[id]) toast('Brain ready! Your agents can work offline now 🎉'); else toast(d.error, 'bad');
         }
-      }, 1000);
+      }, 350);
     },
     'use-model': (id) => act(() => call('PATCH', 'settings', { defaultModel: id }), 'Default brain set'),
     'forget-model': (id) => act(() => call('POST', 'brain/forget-device', { model: id }), 'Removed from the list (your browser may keep the cached files)'),

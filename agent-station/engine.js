@@ -14,7 +14,10 @@
 (() => {
   'use strict';
 
-  const WEBLLM_URL = 'https://cdn.jsdelivr.net/npm/@mlc-ai/web-llm@0.2.89/lib/index.js'; // Apache-2.0, pinned
+  // On-device engine: wllama (llama.cpp compiled to WebAssembly, MIT). Runs on the phone's
+  // processor in any modern browser, and uses the graphics chip (WebGPU) automatically when present.
+  const WLLAMA_URL = 'https://cdn.jsdelivr.net/npm/@wllama/wllama@3.13.0/esm/index.js';
+  const WLLAMA_WASM = 'https://cdn.jsdelivr.net/npm/@wllama/wllama@3.13.0/esm/wasm/wllama.wasm';
   const now = () => Date.now();
   const uid = (p) => `${p}_${Math.random().toString(36).slice(2, 12)}`;
   const slug = (s) => String(s).toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60);
@@ -79,11 +82,11 @@
   const agentById = (id) => state.agents.find((a) => a.id === id);
 
   /* ----------------------------------------------------------- brains */
+  // Official Qwen GGUF builds (Apache-2.0). Qwen models are trained for native tool calling.
   const DEVICE_MODELS = [
-    { model: 'Qwen3-1.7B-q4f16_1-MLC', label: 'Qwen3 1.7B', size: '≈2.0 GB', note: 'Recommended: good balance of smarts and speed' },
-    { model: 'Llama-3.2-1B-Instruct-q4f16_1-MLC', label: 'Llama 3.2 1B', size: '≈0.9 GB', note: 'Smallest and fastest; best for simple tasks' },
-    { model: 'Hermes-3-Llama-3.2-3B-q4f16_1-MLC', label: 'Hermes 3 (Llama 3.2 3B)', size: '≈2.3 GB', note: 'Good at following tool instructions' },
-    { model: 'Qwen3-4B-q4f16_1-MLC', label: 'Qwen3 4B', size: '≈3.4 GB', note: 'Smartest on-device option; needs a powerful phone' },
+    { model: 'Qwen/Qwen2.5-1.5B-Instruct-GGUF', label: 'Qwen2.5 1.5B', size: '≈1.1 GB', note: 'Recommended: reliable tool use at a good speed' },
+    { model: 'Qwen/Qwen2.5-0.5B-Instruct-GGUF', label: 'Qwen2.5 0.5B', size: '≈0.5 GB', note: 'Smallest and fastest; good for quick, simple tasks' },
+    { model: 'Qwen/Qwen3-1.7B-GGUF', label: 'Qwen3 1.7B', size: '≈1.8 GB', note: 'Newest and smartest of the three; slower' },
   ];
   const CLAUDE = [
     { model: 'claude-opus-5-5', label: 'Claude Opus 5.5', price: [4, 20] },
@@ -92,6 +95,7 @@
   ];
   const OPENAI_BASE = { openrouter: 'https://openrouter.ai/api/v1', groq: 'https://api.groq.com/openai/v1' };
   const hasWebGPU = () => typeof navigator !== 'undefined' && !!navigator.gpu;
+  const canRunLocal = () => typeof WebAssembly === 'object' && typeof Worker === 'function';
 
   let modelCache = { at: 0, models: [], providers: {} };
   const parseModel = (id) => { const s = String(id || ''); const i = s.indexOf(':'); return i > 0 ? { provider: s.slice(0, i), model: s.slice(i + 1) } : { provider: 'anthropic', model: s }; };
@@ -102,11 +106,11 @@
     const k = keys(), models = [], providers = {};
     const add = (provider, model, label, free, extra = {}) => models.push({ id: `${provider}:${model}`, provider, model, label, free, ...extra });
     // On-device
-    if (hasWebGPU()) {
-      DEVICE_MODELS.forEach((m) => { if (state.settings.downloaded[m.model]) add('device', m.model, `${m.label} (on this phone)`, true); });
-      const n = Object.keys(state.settings.downloaded).length;
-      providers.device = { ready: n > 0, note: n ? `${n} model(s) downloaded` : 'Supported. Download a model to start' };
-    } else providers.device = { ready: false, note: "This browser can't run models on the device (needs WebGPU: recent Chrome on Android, or Safari on iOS 26+)" };
+    if (canRunLocal()) {
+      const have = DEVICE_MODELS.filter((m) => state.settings.downloaded[m.model]);
+      have.forEach((m) => add('device', m.model, `${m.label} (on this phone)`, true));
+      providers.device = { ready: have.length > 0, note: have.length ? `${have.length} model(s) downloaded` : 'Download a model to start' };
+    } else providers.device = { ready: false, note: "This browser can't run models on the phone. Update Chrome or Safari." };
     // Claude
     if (k.anthropic) { CLAUDE.forEach((c) => add('anthropic', c.model, c.label, false)); providers.anthropic = { ready: true, note: 'Key saved on this phone' }; }
     else providers.anthropic = { ready: false, note: 'No key' };
@@ -114,7 +118,7 @@
     if (k.openrouter) {
       try {
         const j = await (await fetch(`${OPENAI_BASE.openrouter}/models`, { signal: AbortSignal.timeout(8000) })).json();
-        const free = (j.data || []).filter((m) => m.id.endsWith(':free') && (m.supported_parameters || []).includes('tools')).slice(0, 30);
+        const free = (j.data || []).filter((m) => m.id.endsWith(':free') && (m.supported_parameters || []).includes('tools') && !state.settings.noTools?.[`openrouter:${m.id}`]).slice(0, 30);
         free.sort((a, b) => rankFree({ model: a.id }) - rankFree({ model: b.id })).forEach((m) => add('openrouter', m.id, (m.name || m.id).replace(/^[^:]{1,30}:\s*/, '').replace(/\s*\(free\)\s*$/i, '') + ' (free)', true));
         providers.openrouter = { ready: free.length > 0, note: `${free.length} free model(s)` };
       } catch (e) { providers.openrouter = { ready: false, note: `Couldn't list models (${e.message})` }; }
@@ -156,25 +160,38 @@
   const agentModel = (a) => (a.model && modelCache.models.some((m) => m.id === a.model) ? a.model : defaultModel());
 
   /* ------------------------------------------------- on-device runtime */
-  const device = { engine: null, model: '', loading: false, progress: 0, text: '', error: '' };
+  const device = { engine: null, model: '', loading: false, loadingModel: '', progress: 0, text: '', error: '', gpu: false };
   async function loadDevice(model) {
-    if (!hasWebGPU()) throw httpError("This phone's browser can't run on-device models (WebGPU is missing). Use a free online brain instead.");
-    if (!DEVICE_MODELS.some((m) => m.model === model)) throw httpError('Unknown on-device model');
+    if (!canRunLocal()) throw httpError("This browser can't run models on the phone. Update Chrome or Safari, or use a free online brain.");
+    const info = DEVICE_MODELS.find((m) => m.model === model);
+    if (!info) throw httpError('Unknown on-device model');
     if (device.engine && device.model === model) return device.engine;
-    if (device.loading) throw httpError('A model is already loading. Wait for it to finish.');
+    if (device.loading) {
+      // Another request is already loading this model: wait for it instead of failing.
+      while (device.loading) await sleep(500);
+      if (device.engine && device.model === model) return device.engine;
+    }
     Object.assign(device, { loading: true, loadingModel: model, progress: 0, text: 'Starting…', error: '' });
     try {
-      const webllm = await import(WEBLLM_URL);
-      if (device.engine) { try { await device.engine.unload(); } catch { /* ignore */ } }
-      device.engine = await webllm.CreateMLCEngine(model, {
-        initProgressCallback: (p) => { device.progress = p.progress || 0; device.text = p.text || ''; },
+      const { Wllama } = await import(WLLAMA_URL);
+      if (device.engine) { try { await device.engine.exit(); } catch { /* ignore */ } device.engine = null; }
+      const w = new Wllama({ default: WLLAMA_WASM }, { suppressNativeLog: true });
+      const done = !!state.settings.downloaded[model];
+      device.text = done ? 'Loading from your phone…' : 'Downloading (one time)…';
+      await w.loadModelFromHF({ repo: model, quant: 'Q4_K_M' }, {
+        n_ctx: 4096,
+        progressCallback: ({ loaded, total }) => {
+          device.progress = total ? loaded / total : 0;
+          device.text = `${done ? 'Loading' : 'Downloading'} ${(loaded / 1e6).toFixed(0)} / ${(total / 1e6).toFixed(0)} MB`;
+        },
       });
-      device.model = model;
+      device.engine = w; device.model = model;
+      device.text = 'Ready';
       state.settings.downloaded[model] = true;
       save();
       await discover(true);
-      event('success', null, `On-device brain ready: ${DEVICE_MODELS.find((m) => m.model === model).label}`);
-      return device.engine;
+      event('success', null, `On-device brain ready: ${info.label}${w.isMultithread?.() ? ' (multi-core)' : ''}`);
+      return w;
     } catch (e) {
       device.error = e.message || String(e);
       throw httpError(`Couldn't load the on-device model: ${device.error}`);
@@ -376,85 +393,52 @@ ${web}
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const stripThink = (t) => String(t || '').replace(/<think>[\s\S]*?<\/think>/g, '').replace(/<think>[\s\S]*$/, '').trim();
 
-  async function runOpenAI(agent, task, provider, model, modelId) {
-    try { return await runOpenAITools(agent, task, provider, model, modelId); }
-    catch (e) {
-      if (e.code !== 'no-tools') throw e;
-      // This model can't do native tool calls: use the simple JSON protocol instead.
-      event('info', agent.id, `${model} has no tool calling; using simple mode`);
-      return runJsonProtocol(agent, task, modelId, model, async (messages) => {
-        const r = await openaiChat(provider, model, messages);
-        addUsage(agent, task, r.usage, modelId);
-        return r.choices[0].message?.content || '';
-      });
+  // Some models write tool calls as text in Qwen/Hermes format instead of returning tool_calls.
+  function textToolCalls(content) {
+    const out = [];
+    for (const m of String(content || '').matchAll(/<tool_call>\s*([\s\S]*?)\s*<\/tool_call>/g)) {
+      try { const j = JSON.parse(m[1]); if (j.name) out.push({ type: 'function', function: { name: j.name, arguments: JSON.stringify(j.arguments ?? j.parameters ?? {}) } }); } catch { /* ignore */ }
     }
+    return out;
   }
 
-  async function runOpenAITools(agent, task, provider, model, modelId) {
+  // One tool-calling loop for every OpenAI-style brain: online providers and on-device models.
+  async function runToolLoop(agent, task, modelId, chat, { maxTurns = 20, compact = false, provider = 'openai' } = {}) {
     const tools = toolDefs().map((t) => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.parameters } }));
-    const messages = [{ role: 'system', content: systemPrompt(agent, provider) }, { role: 'user', content: preamble(agent, task.prompt, task.voice) }];
+    const messages = [{ role: 'system', content: systemPrompt(agent, provider) }, { role: 'user', content: preamble(agent, task.prompt, task.voice, compact) }];
     let final = '';
-    for (let turn = 0; turn < 20; turn++) {
-      const r = await openaiChat(provider, model, messages, tools);
+    for (let turn = 0; turn < maxTurns; turn++) {
+      const r = await chat(messages, tools);
       addUsage(agent, task, r.usage, modelId);
-      const m = r.choices[0].message || {};
-      const text = stripThink(m.content); if (text) final = text;
-      const calls = (m.tool_calls || []).filter((c) => c.function?.name);
+      const m = r.choices?.[0]?.message || {};
+      let calls = (m.tool_calls || []).filter((c) => c.function?.name);
+      if (!calls.length) calls = textToolCalls(m.content);
+      const text = stripThink(String(m.content || '').replace(/<tool_call>[\s\S]*?<\/tool_call>/g, ''));
+      if (text) final = text;
       if (!calls.length) return final || '(No written answer.)';
       calls.forEach((c, i) => { c.id ||= `call_${turn}_${i}`; c.type ||= 'function'; });
       messages.push({ role: 'assistant', content: m.content || '', tool_calls: calls });
       const parsed = calls.map((c) => { let input = null; try { input = typeof c.function.arguments === 'string' ? JSON.parse(c.function.arguments || '{}') : c.function.arguments || {}; } catch { /* bad JSON */ } return { id: c.id, name: c.function.name, input }; });
       const res = await runTools(parsed.filter((p) => p.input), { agent, task });
       parsed.filter((p) => !p.input).forEach((p) => res.push({ id: p.id, content: 'Error: arguments were not valid JSON. Try again.' }));
-      res.forEach((x) => messages.push({ role: 'tool', tool_call_id: x.id, content: x.content }));
+      res.forEach((x) => messages.push({ role: 'tool', tool_call_id: x.id, content: compact ? x.content.slice(0, 2500) : x.content }));
     }
-    return final + '\n\n(Stopped after 20 tool rounds.)';
+    return final + `\n\n(Stopped after ${maxTurns} tool rounds.)`;
   }
 
-  // Small on-device models follow a simple JSON protocol more reliably than native tool calling.
-  function extractJson(text) {
-    const t = stripThink(text).replace(/^```(?:json)?\s*|\s*```$/g, '');
-    const start = t.indexOf('{'); if (start < 0) return null;
-    for (let end = t.lastIndexOf('}'); end > start; end = t.lastIndexOf('}', end - 1)) {
-      try { return JSON.parse(t.slice(start, end + 1)); } catch { /* keep shrinking */ }
-    }
-    return null;
-  }
+  const runOpenAI = (agent, task, provider, model, modelId) =>
+    runToolLoop(agent, task, modelId, (messages, tools) => openaiChat(provider, model, messages, tools), { provider });
+
   async function runDevice(agent, task, model) {
-    const engine = await loadDevice(model);
-    return runJsonProtocol(agent, task, `device:${model}`, model, async (messages) => {
-      const r = await engine.chat.completions.create({ messages, temperature: 0.3, max_tokens: 900 });
-      addUsage(agent, task, r.usage, `device:${model}`);
-      return r.choices?.[0]?.message?.content || '';
-    }, 8);
-  }
-
-  async function runJsonProtocol(agent, task, modelId, model, complete, maxTurns = 12) {
-    const defs = toolDefs();
-    const toolList = defs.map((t) => `- ${t.name}(${Object.keys(t.parameters.properties || {}).join(', ')}): ${t.description}`).join('\n');
-    const sys = `${systemPrompt(agent, 'device')}
-
-TOOLS you can use:
-${toolList}
-
-To use a tool, reply with ONLY one JSON object, like:
-{"tool": "plugin_wikipedia", "input": {"topic": "Eiffel Tower"}}
-You will get the result, then continue. When you are done, reply with ONLY:
-{"answer": "your final answer for the user"}
-Keep answers concise.${/qwen3/i.test(model) ? ' /no_think' : ''}`;
-    const messages = [{ role: 'system', content: sys }, { role: 'user', content: preamble(agent, task.prompt, task.voice, true) }];
-    let final = '';
-    for (let turn = 0; turn < maxTurns; turn++) {
-      const raw = await complete(messages);
-      const j = extractJson(raw);
-      if (!j || (!j.tool && j.answer === undefined)) return stripThink(raw) || final || '(No written answer.)';
-      if (j.answer !== undefined) return String(j.answer);
-      messages.push({ role: 'assistant', content: JSON.stringify(j) });
-      const [res] = await runTools([{ id: 't', name: String(j.tool), input: j.input || {} }], { agent, task });
-      messages.push({ role: 'user', content: `Result of ${j.tool}:\n${res.content.slice(0, 1800)}\n\nContinue: another tool call, or {"answer": ...} if done.` });
-      final = '';
-    }
-    return `(Stopped after ${maxTurns} steps. Try a simpler request or a bigger model.)`;
+    const w = await loadDevice(model);
+    const noThink = /qwen3/i.test(model);
+    return runToolLoop(agent, task, `device:${model}`, async (messages, tools) => {
+      const msgs = noThink ? messages.map((m, i) => (i === 0 ? { ...m, content: m.content + '\n/no_think' } : m)) : messages;
+      const t0 = now();
+      const tick = setInterval(() => { live[agent.id] = { ...live[agent.id], task: `Thinking on your phone… ${Math.round((now() - t0) / 1000)}s` }; }, 1000);
+      try { return await w.createChatCompletion({ messages: msgs, tools, tool_choice: 'auto', max_tokens: 1024, temperature: 0.3 }); }
+      finally { clearInterval(tick); }
+    }, { maxTurns: 10, compact: true, provider: 'device' });
   }
 
   async function runAgent(agent, task) {
@@ -465,7 +449,18 @@ Keep answers concise.${/qwen3/i.test(model) ? ' /no_think' : ''}`;
     const { provider, model } = parseModel(modelId);
     if (provider === 'device') return runDevice(agent, task, model);
     if (provider === 'anthropic') return runClaude(agent, task, model, modelId);
-    return runOpenAI(agent, task, provider, model, modelId);
+    try { return await runOpenAI(agent, task, provider, model, modelId); }
+    catch (e) {
+      if (e.code !== 'no-tools') throw e;
+      // That model can't use tools: hide it and hand the task to the next tool-capable model.
+      (state.settings.noTools ||= {})[modelId] = true; save();
+      await discover(true);
+      const next = agentModel(agent);
+      if (!next || next === modelId) throw new Error(`${model} can't use tools, and no other tool-capable model is available. Add another brain in Brain → Connect.`);
+      event('info', agent.id, `${model} can't use tools; switched to ${parseModel(next).model}`);
+      if (agent.model === modelId) { agent.model = ''; save(); }
+      return runAgent(agent, task);
+    }
   }
 
   /* ---------------------------------------------- tasks and workflows */
@@ -528,14 +523,14 @@ Keep answers concise.${/qwen3/i.test(model) ? ' /no_think' : ''}`;
     if (!modelId) throw httpError('Set up a brain first (Brain → Connect).');
     const system = 'Rewrite the user\'s request so an AI agent can act on it: goal, key context, constraints, output format, and what "done" looks like. Keep their intent, under 120 words, and use [brackets] for details only the user knows. Reply with the improved prompt only.';
     const { provider, model } = parseModel(modelId);
-    if (provider === 'device') { const e = await loadDevice(model); const r = await e.chat.completions.create({ messages: [{ role: 'system', content: system + (/qwen3/i.test(model) ? ' /no_think' : '') }, { role: 'user', content: text }], temperature: 0.4, max_tokens: 400 }); return stripThink(r.choices[0].message.content); }
+    if (provider === 'device') { const w = await loadDevice(model); const r = await w.createChatCompletion({ messages: [{ role: 'system', content: system + (/qwen3/i.test(model) ? '\n/no_think' : '') }, { role: 'user', content: text }], temperature: 0.4, max_tokens: 400 }); return stripThink(r.choices[0].message.content); }
     if (provider === 'anthropic') { AnthropicSDK ||= (await import('./vendor/anthropic-sdk.mjs')).default; const c = new AnthropicSDK({ apiKey: keys().anthropic, dangerouslyAllowBrowser: true }); const r = await c.messages.create({ model, max_tokens: 2000, output_config: { effort: 'low' }, system, messages: [{ role: 'user', content: text }] }); return r.content.filter((b) => b.type === 'text').map((b) => b.text).join('').trim(); }
     const r = await openaiChat(provider, model, [{ role: 'system', content: system }, { role: 'user', content: text }]); return stripThink(r.choices[0].message.content);
   }
 
   /* ----------------------------------------------------------- status */
   const PROVIDER_INFO = [
-    { id: 'device', label: 'On this phone (open-source, offline)', free: true, setup: 'Download a model once in Set up brains. Needs WebGPU (recent Chrome on Android, Safari on iOS 26+) and ~1–3.5 GB of space.' },
+    { id: 'device', label: 'On this phone (open-source, offline)', free: true, setup: 'Download a Qwen model once in Set up brains (0.5–1.8 GB, use Wi-Fi). Runs on any recent phone.' },
     { id: 'openrouter', label: 'OpenRouter: free online open models', free: true, setup: 'Free key at openrouter.ai → paste it in Set up brains. ":free" models cost nothing (rate-limited).' },
     { id: 'groq', label: 'Groq: fast free tier', free: true, setup: 'Free key at console.groq.com → paste it in Set up brains.' },
     { id: 'anthropic', label: 'Claude (Anthropic)', free: false, setup: 'Key from console.anthropic.com → paste it in Set up brains. Paid per use; includes real web search.' },
@@ -547,7 +542,7 @@ Keep answers concise.${/qwen3/i.test(model) ? ' /no_think' : ''}`;
     return {
       mode: 'phone', model: defaultModel(), defaultModel: defaultModel(), serverTime: now(),
       models: modelCache.models, providers: PROVIDER_INFO.map((p) => ({ ...p, ...(modelCache.providers[p.id] || { ready: false, note: '' }) })),
-      device: { webgpu: hasWebGPU(), loading: device.loading, loadingModel: device.loadingModel || '', progress: device.progress, text: device.text, error: device.error, loaded: device.model, downloaded: state.settings.downloaded, models: DEVICE_MODELS },
+      device: { webgpu: hasWebGPU(), supported: canRunLocal(), loading: device.loading, loadingModel: device.loadingModel || '', progress: device.progress, text: device.text, error: device.error, loaded: device.model, downloaded: state.settings.downloaded, models: DEVICE_MODELS },
       keys: Object.fromEntries(Object.entries(keys()).map(([k, v]) => [k, k === 'customUrl' ? v : !!v])),
       connectors: [], plugins: PLUGINS.map((p) => ({ name: p.name, label: p.label, icon: p.icon, description: p.description, enabled: pluginOn(p) })),
       voice: { stt: false }, clone: { available: false }, studio: { available: false, voices: [] }, voices: [],

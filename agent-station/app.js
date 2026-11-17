@@ -323,9 +323,12 @@
   /* ========================================================= connection */
   const cfg = Object.assign({ source: '', base: '', token: '', interval: 3 }, store.get('cfg', {}));
   const isServer = () => cfg.source === 'server';
+  const isPhone = () => cfg.source === 'phone';
+  const engine = window.AgentStationEngine;
   const apiUrl = (p) => { const b = (cfg.base || '').trim().replace(/\/+$/, ''); return (b ? b + '/' : '') + 'api/' + p; };
 
   async function call(method, p, body) {
+    if (isPhone() && engine) return engine.handle(method, p, body);
     if (!isServer()) return demo.handle(method, p, body);
     const headers = { 'Content-Type': 'application/json' };
     if (cfg.token) headers.Authorization = 'Bearer ' + cfg.token;
@@ -359,7 +362,7 @@
   }
   function schedule() {
     clearInterval(timer);
-    timer = setInterval(() => { if (!document.hidden) refresh(); }, isServer() ? Math.max(2, +cfg.interval || 3) * 1000 : 1000);
+    timer = setInterval(() => { if (!document.hidden || (isPhone() && S.tasks.some((t) => t.status === 'running'))) refresh(); }, isServer() ? Math.max(2, +cfg.interval || 3) * 1000 : 1000);
     refresh();
   }
 
@@ -370,7 +373,7 @@
     if (!id) return '—';
     const m = modelInfo(id);
     const label = m?.label || id.slice(id.indexOf(':') + 1);
-    return label.replace(/\s*\((local|free|Groq|custom)\)$/i, '');
+    return label.replace(/\s*\((local|free|Groq|custom|on this phone)\)$/i, '');
   }
   const isFree = (id) => (modelInfo(id)?.free ?? !String(id).startsWith('anthropic:'));
   const modelBadge = (id) => `<span class="mbadge ${isFree(id) ? 'free' : ''}">${isFree(id) ? 'FREE · ' : ''}${esc(shortModel(id))}</span>`;
@@ -455,8 +458,14 @@
   };
 
   const REGIONS = {
-    hello: () => `<div><h3>${greeting()}</h3><p class="muted">${S.mode === 'demo' ? 'You are in <b>demo mode</b>: everything is simulated. Connect your station in ⚙️ to do real work.' : `Connected to your station · ${esc(shortModel(S.defaultModel || S.model))}`}</p></div>
-        <button class="btn small" data-act="go-tasks">+ New task</button>`,
+    hello: () => {
+      if (S.mode === 'phone' && !S.models.length) return `<div><h3>${greeting()}</h3><p class="muted">Your agents run <b>on this phone</b>, but they need a brain first. It's free.</p></div>
+        <button class="btn small" data-act="brain">🧠 Set up</button>`;
+      const line = S.mode === 'demo' ? 'You are in <b>demo mode</b>: everything is simulated. Tap ⚙️ to run real agents.'
+        : S.mode === 'phone' ? `Agents run on this phone · ${esc(shortModel(S.defaultModel))}${isFree(S.defaultModel) ? ' · free' : ''}`
+        : `Connected to your station · ${esc(shortModel(S.defaultModel || S.model))}`;
+      return `<div><h3>${greeting()}</h3><p class="muted">${line}</p></div><button class="btn small" data-act="go-tasks">+ New task</button>`;
+    },
     stats() {
       const A = S.agents;
       const busy = A.filter((a) => a.status === 'running').length;
@@ -535,6 +544,7 @@
       <h2>Voice</h2>
       ${voiceSettingsHtml()}
       <div class="h2row"><h2>AI models</h2><button class="link" data-act="refresh-models">↻ Refresh</button></div>
+      ${S.mode === 'phone' ? `<button class="btn" data-act="brain" style="margin-bottom:10px">🧠 Set up brains: on-device or free keys</button>` : ''}
       <div class="card">
         <label class="field">Default model for all agents<select data-change="default-model">${modelOptions(S.defaultModel, false)}</select></label>
         <p class="muted tiny" style="margin:0">Each agent can use a different model. Open an agent on the Station tab to change it. Free models cost nothing to run.</p>
@@ -544,9 +554,10 @@
           <div class="wf-head"><span class="emo">${p.ready ? '✅' : '⚪'}</span><div class="grow"><b>${esc(p.label)}</b>${p.free ? ' <span class="mbadge free">FREE</span>' : ''}<p class="muted tiny">${esc(p.note || '')}</p></div></div>
           ${p.ready ? '' : `<p class="muted tiny setup">How to turn on: ${esc(p.setup)}</p>`}
         </div>`).join('')}</div>
-      <div class="h2row"><h2>Connectors</h2><button class="link" data-act="add-remote">+ Add by URL</button></div>
+      ${S.mode === 'phone' ? `<h2>Connectors</h2><div class="card"><p class="muted tiny" style="margin:0">🔌 Connectors (GitHub, Notion, web browser…) run programs, so they need the <b>station server on a computer</b>. On the phone your agents still have memory, skills, files, workflows and the plugins below.</p></div>` : `
+      <div class="h2row"><h2>Connectors</h2><button class="link" data-act="add-remote">+ Add by URL</button></div>`}
       <p class="muted tiny" style="margin:-4px 2px 10px">Open-source MCP connectors. Switch one on and every agent can use its tools.</p>
-      <div class="list">${S.connectors.map((c) => `
+      <div class="list" ${S.mode === 'phone' ? 'hidden' : ''}>${S.connectors.map((c) => `
         <div class="card conn">
           <div class="wf-head"><span class="emo">${c.icon || '🔌'}</span><div class="grow"><b>${esc(c.name)}</b><p class="muted tiny">${esc(c.desc)}</p></div>${statusPill(c)}</div>
           <p class="muted tiny" style="margin:8px 0 0">${c.needs?.length ? '🔑 Needs: ' + c.needs.map((n) => esc(n.label)).join(', ') + ' · ' : '🆓 No account needed · '}Requires: ${esc(c.requires || '')}</p>
@@ -635,7 +646,8 @@
     { id: 'voice', icon: '🎙️', title: 'Talk to your agents', time: '1 min', body: md('Tap **🎙️** at the top of any screen (or **Talk** on an agent) and just speak.\n\n- The agent works on what you said, then **reads its answer aloud** in a few short sentences. Longer details go into a file you can open.\n- **Hands-free** keeps the conversation going: after each answer it listens again. Say **"goodbye"** to stop.\n- The **🎤** button in the task box lets you dictate a prompt instead of typing.\n- Change the language, voice and speaking speed in **Brain → Connect → Voice**.\n\nIt\'s free: your phone recognizes speech and speaks with its own voices. (Firefox users: the station can transcribe with open-source Whisper instead.)') },
     { id: 'characters', icon: '✨', title: 'Characters & free voices', time: '2 min', body: md('Tap **✨ Add from gallery** on the Station tab to add a ready-made character: **Novi** (research), **Zipp** (fact-checks), **Professor Hootley** (tutor), **Kit** (study buddy), **Confetti** (social posts), **Luma** (stories), **Pip** (budgets), **Mira** (email), **Wrenna** (tech help), **Rova** (travel), **Basil** (cooking) and **Calma** (routines).\n\n**Free to use, no copyright worries:** the characters and avatars were made for Agent Station and are released under **CC0**. Use, change and share them, even commercially.\n\n**Voices:** each character has a suggested **studio voice** from Kokoro, an open-source model licensed **Apache-2.0** (free for any use). Install it on the server computer with `pip install kokoro`, then run `python voice_server.py` in `server/voice-clone`. Without it, characters use your device voice at their own pitch.\n\nChange any agent\'s voice: tap the agent → **Speaking voice**.') },
     { id: 'clone', icon: '🧬', title: 'Clone a voice (free)', time: '2 min', body: md('Your agents can speak with a **cloned voice**, such as your own, so voice chat sounds like a real person.\n\n1. On the server computer, start the free cloner once: `cd server/voice-clone`, `pip install -r requirements.txt`, `python voice_server.py`. It uses **Chatterbox**, an open-source model that runs on your machine.\n2. In **Brain → Connect → Voice**, tap **Clone a voice**, confirm consent, and read the short script aloud (about 20 seconds).\n3. Tap an agent → **Speaking voice** → pick the new voice.\n\n**Rules that matter:** only clone your own voice or someone who agreed. The sample must be recorded live with a spoken consent line, and existing recordings can\'t be uploaded. Never use a cloned voice to trick or impersonate anyone; in many places that\'s illegal. Every clip has an inaudible AI watermark. Delete a voice anytime.') },
-    { id: 'connect', icon: '🔌', title: 'Connect real agents', time: '5 min', body: md('Demo mode is pretend. To make your agents do real work:\n\n1. Choose a brain: install **Ollama** (free, ollama.com) and run `ollama pull qwen3:8b`, **or** get a Claude key at console.anthropic.com, **or** a free OpenRouter/Groq key.\n2. On a computer with Node.js 18+, open the `agent-station/server` folder and run:\n```\nnpm install\nnpm start\n```\n(For Claude: `ANTHROPIC_API_KEY=your-key npm start`. For OpenRouter: `OPENROUTER_API_KEY=… npm start`.)\n3. Open the address it prints (on your phone, use the computer\'s Wi-Fi IP, e.g. `http://192.168.1.20:8787`).\n4. The app connects automatically. Install it: **Share → Add to Home Screen**.\n\nRunning it somewhere public? Set `STATION_TOKEN` and enter the same token in ⚙️ Settings.') },
+    { id: 'phone', icon: '📱', title: 'Run agents on your phone', time: '2 min', body: md('Agents run **inside this app**: no computer needed. They just need a **brain** (an AI model). Open ⚙️ → **On this phone**, then **Brain → Connect → Set up brains**:\n\n- **On this phone (free, private, offline):** download an open-source model once (about 1–3.5 GB, use Wi-Fi). Needs a recent **Chrome on Android** or **Safari on iOS 26+**. Small models are great for writing, planning and simple lookups.\n- **Free online:** paste a free key from **openrouter.ai** or **console.groq.com**. Bigger, smarter models; needs internet.\n- **Claude:** paste your key for the strongest agent with real web search (paid per use).\n\nYour tasks, memories, skills, files and workflows are saved on the phone. **Keep the app open** while agents work. Phones pause apps in the background, so the app keeps your screen awake during tasks.\n\nConnectors and voice cloning need a computer (see *Connect real agents*).') },
+    { id: 'connect', icon: '🔌', title: 'Connect a computer (power mode)', time: '5 min', body: md('Optional: run the station server on a computer for extras the phone can\'t do: **MCP connectors**, **studio voices** and **voice cloning**, and bigger local models via Ollama.\n\n1. Choose a brain: install **Ollama** (free, ollama.com) and run `ollama pull qwen3:8b`, **or** get a Claude key at console.anthropic.com, **or** a free OpenRouter/Groq key.\n2. On a computer with Node.js 18+, open the `agent-station/server` folder and run:\n```\nnpm install\nnpm start\n```\n(For Claude: `ANTHROPIC_API_KEY=your-key npm start`. For OpenRouter: `OPENROUTER_API_KEY=… npm start`.)\n3. Open the address it prints (on your phone, use the computer\'s Wi-Fi IP, e.g. `http://192.168.1.20:8787`).\n4. The app connects automatically. Install it: **Share → Add to Home Screen**.\n\nRunning it somewhere public? Set `STATION_TOKEN` and enter the same token in ⚙️ Settings.') },
     { id: 'safety', icon: '🛡️', title: 'Safety & costs', time: '1 min', body: md('- **Costs:** Ollama and other free models cost nothing. Claude tasks use tokens billed to your API key. The Spend tile shows an estimate. Research tasks cost more than short writing tasks.\n- **Check facts:** agents cite sources — open the links for anything important.\n- **Privacy:** don\'t paste passwords, card numbers or other people\'s private data.\n- **Stay in charge:** agents only write files inside the station; they can\'t send emails or buy things.') },
   ];
 
@@ -712,8 +724,12 @@
   function settingsSheet() {
     return `<form data-form="settings">
       <h3>⚙️ Connection</h3>
-      <p class="muted">${S.mode === 'demo' ? 'Now: <b>demo mode</b> (simulated).' : `Now: connected${lastOk ? ', last update ' + clock(lastOk) : ''}.`} ${lastErr ? `<span class="s-error">Error: ${esc(lastErr)}</span>` : ''}</p>
-      <label class="field">Mode<select name="source"><option value="demo" ${!isServer() ? 'selected' : ''}>Demo (pretend agents, no setup)</option><option value="server" ${isServer() ? 'selected' : ''}>My station server (real agents)</option></select></label>
+      <p class="muted">${S.mode === 'demo' ? 'Now: <b>demo mode</b> (simulated).' : S.mode === 'phone' ? 'Now: agents run <b>on this phone</b>.' : `Now: connected to a station server${lastOk ? ', last update ' + clock(lastOk) : ''}.`} ${lastErr ? `<span class="s-error">Error: ${esc(lastErr)}</span>` : ''}</p>
+      <label class="field">Where do agents run?<select name="source">
+        <option value="phone" ${isPhone() ? 'selected' : ''}>On this phone (no computer needed)</option>
+        <option value="server" ${isServer() ? 'selected' : ''}>On my computer (station server: adds connectors and voice cloning)</option>
+        <option value="demo" ${cfg.source === 'demo' ? 'selected' : ''}>Demo (pretend agents)</option></select></label>
+      <p class="muted tiny" style="margin:-6px 0 12px">The fields below are only for the computer option.</p>
       <label class="field">Server address — leave empty if this page is served by your station<input name="base" type="url" inputmode="url" placeholder="http://192.168.1.20:8787" value="${esc(cfg.base)}"></label>
       <label class="field">Station token (only if you set STATION_TOKEN)<input name="token" type="password" autocomplete="off" value="${esc(cfg.token)}"></label>
       <label class="field">Refresh every (seconds)<input name="interval" type="number" min="2" max="60" value="${esc(cfg.interval)}"></label>
@@ -733,6 +749,8 @@
     if (sh.kind === 'voice') html = voiceSheet();
     if (sh.kind === 'clone') html = cloneSheet();
     if (sh.kind === 'gallery') html = gallerySheet();
+    if (sh.kind === 'brain') html = brainSheet();
+    if (sh.kind === 'welcome') html = welcomeSheet();
     if (sh.kind === 'character') { const c = CH.byId(sh.id); if (!c) return closeSheet(); html = characterSheet(c); }
     if (sh.kind === 'events') html = `<h3>All activity</h3><div class="feed" style="margin-top:12px">${eventsHtml(S.events)}</div>`;
     if (sh._last !== html) {
@@ -746,7 +764,8 @@
     $('.sheet-panel').scrollTop = 0;
     renderSheet();
   }
-  function closeSheet() { if (ui.sheet?.kind === 'voice') endVoice(); if (ui.sheet?.kind === 'clone' && cl.recording) cl.rec?.stop(); ui.sheet = null; $('#sheet').hidden = true; $('#sheetBody').innerHTML = ''; }
+  function closeSheet() {
+    if (ui.sheet?.kind === 'brain' && !store.get('toured', false)) setTimeout(startTour, 400); if (ui.sheet?.kind === 'voice') endVoice(); if (ui.sheet?.kind === 'clone' && cl.recording) cl.rec?.stop(); ui.sheet = null; $('#sheet').hidden = true; $('#sheetBody').innerHTML = ''; }
 
   /* ============================================================ render */
   const regionCache = new Map();
@@ -764,10 +783,11 @@
     }
     const typing = document.activeElement?.closest?.('#sheetBody form') || (document.activeElement?.tagName === 'SELECT' && document.activeElement.closest('#sheetBody'));
     if (ui.sheet && !typing) renderSheet();
-    $('#sourceLabel').textContent = S.mode === 'demo' ? 'Demo mode' : (() => { try { return cfg.base ? new URL(cfg.base).host : location.host; } catch { return 'My station'; } })();
+    $('#sourceLabel').textContent = S.mode === 'demo' ? 'Demo mode' : S.mode === 'phone' ? 'Running on this phone' : (() => { try { return cfg.base ? new URL(cfg.base).host : location.host; } catch { return 'My station'; } })();
     const badge = $('#liveBadge');
     badge.className = 'live' + (lastErr ? ' error' : S.mode === 'demo' ? ' demo' : '');
-    $('#liveText').textContent = lastErr ? 'OFFLINE' : S.mode === 'demo' ? 'DEMO' : 'LIVE';
+    $('#liveText').textContent = lastErr ? 'OFFLINE' : S.mode === 'demo' ? 'DEMO' : S.mode === 'phone' ? 'ON PHONE' : 'LIVE';
+    keepAwake(S.tasks.some((t) => t.status === 'running' || t.status === 'queued') && S.mode === 'phone');
     voiceCheck();
     readResultsCheck();
     const running = S.tasks.filter((t) => t.status === 'running' || t.status === 'queued').length;
@@ -1050,6 +1070,65 @@
     </div>`;
   }
 
+  /* ------------------------------------------------- brains (on phone) */
+  let wakeLock = null;
+  async function keepAwake(on) {
+    // Phones pause web apps when the screen locks, so keep it on while agents work.
+    try {
+      if (on && !wakeLock && navigator.wakeLock) { wakeLock = await navigator.wakeLock.request('screen'); wakeLock.addEventListener?.('release', () => { wakeLock = null; }); }
+      if (!on && wakeLock) { await wakeLock.release(); wakeLock = null; }
+    } catch { wakeLock = null; }
+  }
+
+  function brainSheet() {
+    const d = S.device || {}, k = S.keys || {};
+    const pct = Math.round((d.progress || 0) * 100);
+    return `<div class="brain"><h3>🧠 Give your agents a brain</h3>
+      <p class="muted">Agents run <b>inside this app</b>. Pick one or more brains. You can mix them per agent.</p>
+
+      <h2>📱 On this phone: free, private, offline</h2>
+      ${d.webgpu ? `<p class="muted tiny" style="margin:-4px 2px 10px">Open-source models run on your phone's graphics chip. One-time download over Wi-Fi, then they work without internet. Small models are great for writing, planning and simple lookups; for deep web research use a bigger online brain.</p>
+        <div class="list">${(d.models || []).map((m) => {
+          const done = d.downloaded?.[m.model];
+          return `<div class="card dmodel">
+            <div class="wf-head"><span class="emo">${done ? '✅' : '⬇️'}</span><div class="grow"><b>${esc(m.label)}</b> <span class="muted tiny">${esc(m.size)}</span><p class="muted tiny">${esc(m.note)}</p></div></div>
+            ${d.loading && (d.loadingModel || ui.loadingModel) === m.model ? `<div class="bar dl"><i style="width:${pct}%"></i></div><p class="muted tiny">${pct}% · ${esc((d.text || '').slice(0, 90))}</p>`
+              : done ? `<div class="row" style="margin-top:8px"><button class="btn ghost small" data-act="use-model" data-id="device:${esc(m.model)}">${S.defaultModel === 'device:' + m.model ? '★ Default brain' : 'Make default'}</button><button class="btn ghost small" data-act="forget-model" data-id="${esc(m.model)}">Remove</button></div>`
+              : `<button class="btn small" data-act="download-model" data-id="${esc(m.model)}" ${d.loading ? 'disabled' : ''} style="margin-top:8px">Download &amp; use</button>`}
+          </div>`; }).join('')}</div>
+        ${d.error ? `<p class="tiny s-error">${esc(d.error)}</p>` : ''}`
+      : `<div class="card warn"><p class="tiny" style="margin:0">This browser can't run AI models on the phone (it needs <b>WebGPU</b>: a recent <b>Chrome on Android</b>, or <b>Safari on iOS 26+</b>). Use a free online brain below instead.</p></div>`}
+
+      <h2>🌐 Free online brains</h2>
+      <form data-form="keys" class="card">
+        <label class="field">OpenRouter key ${k.openrouter ? '<span class="mbadge free">SAVED</span>' : ''}<input name="openrouter" type="password" autocomplete="off" placeholder="${k.openrouter ? '•••••• (leave blank to keep)' : 'sk-or-…'}"></label>
+        <p class="muted tiny" style="margin:-8px 0 12px">Free account at <b>openrouter.ai</b> → Keys. Models ending in “:free” cost nothing.</p>
+        <label class="field">Groq key ${k.groq ? '<span class="mbadge free">SAVED</span>' : ''}<input name="groq" type="password" autocomplete="off" placeholder="${k.groq ? '•••••• (leave blank to keep)' : 'gsk_…'}"></label>
+        <p class="muted tiny" style="margin:-8px 0 12px">Free account at <b>console.groq.com</b> → API Keys.</p>
+        <details><summary class="tiny"><b>Claude or a custom server</b></summary>
+          <label class="field" style="margin-top:10px">Claude API key ${k.anthropic ? '<span class="mbadge">SAVED</span>' : ''}<input name="anthropic" type="password" autocomplete="off" placeholder="${k.anthropic ? '•••••• (leave blank to keep)' : 'sk-ant-…'}"></label>
+          <p class="muted tiny" style="margin:-8px 0 12px">From console.anthropic.com. Paid per use; adds real web search.</p>
+          <label class="field">OpenAI-compatible server URL<input name="customUrl" type="url" placeholder="https://…/v1" value="${esc(typeof k.customUrl === 'string' ? k.customUrl : '')}"></label>
+          <label class="field">Its key (optional)<input name="customKey" type="password" autocomplete="off"></label>
+        </details>
+        <p class="muted tiny">🔒 Keys are stored only on this phone and sent only to that service.</p>
+        <div class="row"><button class="btn" type="submit">Save keys</button>${Object.values(k).some(Boolean) ? '<button type="button" class="btn ghost narrow" data-act="clear-keys">Clear all</button>' : ''}</div>
+      </form>
+      ${S.models.length ? `<label class="field" style="margin-top:14px">Default brain for all agents<select data-change="default-model">${modelOptions(S.defaultModel, false)}</select></label>` : ''}
+      <p class="muted tiny center">Keep the app open while agents work. Phones pause apps in the background.</p>
+    </div>`;
+  }
+
+  function welcomeSheet() {
+    return `<div class="welcome"><div class="center"><span class="core big"></span></div>
+      <h3 class="center">Welcome to Agent Station</h3>
+      <p class="muted center">Your own team of AI agents that research, write, plan, remember and learn. How should they think?</p>
+      <button class="card choice" data-act="welcome-phone"><span class="emo">📱</span><div class="grow"><b>Run them on this phone</b><p class="muted tiny">Free. No computer needed. Download an open-source model or use a free online one.</p></div><span class="mbadge free">RECOMMENDED</span></button>
+      <button class="card choice" data-act="welcome-demo"><span class="emo">🎮</span><div class="grow"><b>Just look around first</b><p class="muted tiny">Demo mode with pretend agents. Switch anytime in ⚙️.</p></div></button>
+      <button class="card choice" data-act="welcome-server"><span class="emo">💻</span><div class="grow"><b>Connect my computer</b><p class="muted tiny">For power users running the station server (connectors, voice cloning).</p></div></button>
+    </div>`;
+  }
+
   /* ------------------------------------------------------- characters */
   function gallerySheet() {
     const tags = [...new Set(CH.CHARACTERS.map((c) => c.tag))];
@@ -1183,7 +1262,7 @@
       <div class="wf-head"><span class="emo">🎧</span><div class="grow"><b>Studio voices</b> <span class="mbadge free">FREE · APACHE-2.0</span><p class="muted tiny">14 natural voices from Kokoro, an open-source model. Free for personal and commercial use, and runs on your computer, even without a graphics card.</p></div></div>
       ${ready ? `<div class="vgrid">${S.studio.voices.map((v) => `<button class="vchip" data-act="studio-preview" data-id="${esc(v.id)}"><b>▶ ${esc(v.name)}</b><span class="muted tiny">${esc(v.accent)} · ${esc(v.style)}</span></button>`).join('')}</div>
         <p class="muted tiny" style="margin:8px 0 0">Give an agent one of these: tap the agent → Speaking voice.</p>`
-      : `<p class="muted tiny" style="margin:8px 0 0">${S.mode === 'demo' ? '⚪ Needs your station server. In demo mode agents use your device voice.' : '⚪ Not running. On the server computer: <code>cd server/voice-clone</code>, <code>pip install kokoro</code>, <code>python voice_server.py</code>'}</p>`}
+      : `<p class="muted tiny" style="margin:8px 0 0">${S.mode !== 'server' ? '⚪ Needs the station server on a computer. On the phone, agents speak with your device voice at their own pitch.' : '⚪ Not running. On the server computer: <code>cd server/voice-clone</code>, <code>pip install kokoro</code>, <code>python voice_server.py</code>'}</p>`}
     </div>`;
   }
 
@@ -1192,7 +1271,7 @@
     const ready = cloneReady();
     return `<div class="card" style="margin-top:10px">
       <div class="wf-head"><span class="emo">🧬</span><div class="grow"><b>Voice cloner</b> <span class="mbadge free">FREE · OPEN SOURCE</span><p class="muted tiny">Give agents a real voice: yours, or someone who agreed. Runs on your computer with Chatterbox.</p></div></div>
-      <p class="muted tiny" style="margin:8px 0">${ready ? `✅ Cloner running on ${esc(S.clone.device || 'your computer')}${S.clone.device === 'cpu' ? ' (CPU: replies take a few seconds per sentence)' : ''}` : S.mode === 'demo' ? '⚪ Needs your station server. Voice cloning doesn\'t run in demo mode.' : '⚪ Cloning not running. On the server computer: <code>cd server/voice-clone</code>, <code>pip install -r requirements.txt</code>, <code>python voice_server.py</code>'}</p>
+      <p class="muted tiny" style="margin:8px 0">${ready ? `✅ Cloner running on ${esc(S.clone.device || 'your computer')}${S.clone.device === 'cpu' ? ' (CPU: replies take a few seconds per sentence)' : ''}` : S.mode !== 'server' ? '⚪ Needs the station server on a computer (cloning is too heavy for a phone).' : '⚪ Cloning not running. On the server computer: <code>cd server/voice-clone</code>, <code>pip install -r requirements.txt</code>, <code>python voice_server.py</code>'}</p>
       ${voices.map((v) => `<div class="mem vrow"><span class="emo">🗣️</span><div class="grow"><b>${esc(v.name)}</b><p class="muted tiny">Speaker: ${esc(v.speaker)} · ${v.seconds}s sample · ${ago(v.createdAt)} · used by ${S.agents.filter((a) => a.voiceId === v.id).map((a) => esc(a.name)).join(', ') || 'no agent yet'}</p></div>
         <button class="icon-btn" data-act="clone-preview" data-id="${esc(v.id)}" aria-label="Preview" ${ready ? '' : 'disabled'}>▶</button>
         <button class="icon-btn" data-act="clone-del" data-id="${esc(v.id)}" aria-label="Delete voice">✕</button></div>`).join('')}
@@ -1309,6 +1388,26 @@
     'add-step': () => { syncBuilder(); ui.builder.steps.push({ name: '', agent: S.agents[0]?.id, instructions: '' }); renderSheet(); },
     'rm-step': (i) => { syncBuilder(); ui.builder.steps.splice(+i, 1); renderSheet(); },
     'new-agent': () => openSheet('gallery'),
+    brain: () => { if (!isPhone()) return ACTIONS.settings(); openSheet('brain'); },
+    'download-model': (id) => {
+      ui.loadingModel = id;
+      toast('Downloading… keep the app open (use Wi-Fi)');
+      act(() => call('POST', 'brain/device', { model: id }));
+      const watch = setInterval(async () => {
+        await refresh();
+        const d = S.device || {};
+        if (!d.loading && (d.downloaded?.[id] || d.error)) {
+          clearInterval(watch); ui.loadingModel = null; renderSheet();
+          if (d.downloaded?.[id]) toast('Brain ready! Your agents can work offline now 🎉'); else toast(d.error, 'bad');
+        }
+      }, 1000);
+    },
+    'use-model': (id) => act(() => call('PATCH', 'settings', { defaultModel: id }), 'Default brain set'),
+    'forget-model': (id) => act(() => call('POST', 'brain/forget-device', { model: id }), 'Removed from the list (your browser may keep the cached files)'),
+    'clear-keys': () => { if (confirm('Remove all saved keys from this phone?')) act(() => call('POST', 'brain/keys', { anthropic: '', openrouter: '', groq: '', customUrl: '', customKey: '' }), 'Keys removed'); },
+    'welcome-phone': async () => { cfg.source = 'phone'; store.set('cfg', cfg); closeSheet(); await refresh(); render(); schedule(); openSheet('brain'); },
+    'welcome-demo': async () => { cfg.source = 'demo'; store.set('cfg', cfg); closeSheet(); await refresh(); render(); schedule(); if (!store.get('toured', false)) setTimeout(startTour, 400); },
+    'welcome-server': () => { cfg.source = 'server'; store.set('cfg', cfg); closeSheet(); ACTIONS.settings(); },
     character: (id) => openSheet('character', id),
     'char-add': (id) => addCharacter(id),
     'char-hear': (id) => {
@@ -1425,6 +1524,13 @@
       const ok = await act(() => call('POST', 'memories', { fact: f.fact.value.trim(), agent: f.agent.value || null }), 'Remembered 🧠');
       if (ok) closeSheet();
     },
+    async keys(f) {
+      const body = {};
+      for (const n of ['openrouter', 'groq', 'anthropic', 'customKey']) if (f[n]?.value.trim()) body[n] = f[n].value.trim();
+      if (f.customUrl) body.customUrl = f.customUrl.value.trim();
+      const r = await act(() => call('POST', 'brain/keys', body), 'Keys saved on this phone');
+      if (r) { f.reset(); toast(r.count ? `${r.count} model(s) ready ✅` : 'Saved, but no models were found yet. Check the key.', r.count ? '' : 'bad'); renderSheet(); }
+    },
     clone1(f) {
       cl.speaker = f.speaker.value.trim(); cl.name = f.name.value.trim();
       if (!cl.speaker || !cl.name || !f.mine.checked || !f.fair.checked) return toast('Fill in both names and confirm consent', 'bad');
@@ -1447,7 +1553,11 @@
       lastErr = '';
       await refresh();
       if (isServer() && lastErr) toast(`Couldn't connect: ${lastErr}`, 'bad');
-      else { toast(isServer() ? 'Connected to your station ✅' : 'Demo mode on'); closeSheet(); }
+      else {
+        toast(isServer() ? 'Connected to your station ✅' : isPhone() ? 'Agents now run on this phone 📱' : 'Demo mode on');
+        closeSheet(); render();
+        if (isPhone() && !S.models.length) setTimeout(() => openSheet('brain'), 300);
+      }
       schedule();
     },
   };
@@ -1574,12 +1684,14 @@
   /* ============================================================== boot */
   (async function boot() {
     // First visit: if this page is served by a station server, connect to it automatically.
+    let firstRun = false;
     if (!cfg.source) {
-      cfg.source = 'demo';
+      cfg.source = 'phone';
+      firstRun = true;
       if (location.protocol.startsWith('http')) {
         try {
           const r = await fetch('api/status', { cache: 'no-store' });
-          if (r.ok || r.status === 401) { cfg.source = 'server'; if (r.status === 401) setTimeout(() => { toast('Your station needs a token — enter it in Settings', 'bad'); ACTIONS.settings(); }, 600); }
+          if (r.ok || r.status === 401) { cfg.source = 'server'; firstRun = false; if (r.status === 401) setTimeout(() => { toast('Your station needs a token — enter it in Settings', 'bad'); ACTIONS.settings(); }, 600); }
         } catch { /* static hosting: stay in demo */ }
       }
       store.set('cfg', cfg);
@@ -1588,6 +1700,7 @@
     render();
     schedule();
     if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js').catch(() => {});
-    if (!store.get('toured', false)) setTimeout(startTour, 700);
+    if (firstRun) setTimeout(() => openSheet('welcome'), 500);
+    else if (!store.get('toured', false)) setTimeout(startTour, 700);
   })();
 })();

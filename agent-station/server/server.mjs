@@ -578,7 +578,7 @@ function send(res, status, data, headers = {}) {
   res.end(isBuf ? data : JSON.stringify(data));
 }
 
-const STATIC = { 'index.html': 'text/html', 'app.js': 'text/javascript', 'characters.js': 'text/javascript', 'styles.css': 'text/css', 'sw.js': 'text/javascript', 'manifest.webmanifest': 'application/manifest+json', 'icon.svg': 'image/svg+xml' };
+const STATIC = { 'index.html': 'text/html', 'app.js': 'text/javascript', 'characters.js': 'text/javascript', 'engine.js': 'text/javascript', 'vendor/anthropic-sdk.mjs': 'text/javascript', 'styles.css': 'text/css', 'sw.js': 'text/javascript', 'manifest.webmanifest': 'application/manifest+json', 'icon.svg': 'image/svg+xml' };
 
 const routes = [
   ['GET', /^\/api\/status$/, async () => statusView(await listFiles(), await cloneStatus())],

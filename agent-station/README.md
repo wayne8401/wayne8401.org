@@ -1,7 +1,27 @@
 # Agent Station
 
-A mobile app for running a team of AI agents: give them real tasks, chain them into workflows, and watch them learn. It works on any phone as an installable web app.
+A mobile app that **runs a team of AI agents on your phone**. Give them real tasks, chain them into workflows, and watch them remember and learn. No computer is needed: the agents, their memory, skills, files and workflows all live inside the app (an installable web app for iPhone and Android).
 
+## Run agents on your phone (no computer)
+Open the app, choose **Run them on this phone**, and give your agents a brain:
+
+| Brain | Cost | Notes |
+|---|---|---|
+| **On-device model** (Qwen3, Llama 3.2, Hermes 3 via [WebLLM](https://github.com/mlc-ai/web-llm), Apache-2.0) | Free, private, works offline | One-time 0.9–3.4 GB download. Needs WebGPU: recent Chrome on Android, or Safari on iOS 26+ |
+| **OpenRouter** `:free` models | Free (rate-limited) | Paste a free key from openrouter.ai |
+| **Groq** | Free tier | Paste a free key from console.groq.com |
+| **Claude** | Paid per use | Paste a key from console.anthropic.com; adds real web search. Uses the official Anthropic SDK (`vendor/`, MIT) |
+| **Custom** OpenAI-compatible server | Free | Any https endpoint |
+
+Keys are stored only on the phone and sent only to that service. Keep the app open while agents work: phones pause web apps in the background, so the app keeps the screen awake during tasks. On the phone, agents have memory, skills, files, workflows, voice chat, characters, and the calculator/weather/Wikipedia plugins. MCP connectors, studio voices and voice cloning need the optional computer server (below).
+
+### Get the app onto your phone
+The app is a set of static files, so any free static host works:
+1. Put the `agent-station` folder online, for example by dragging it onto **netlify.com/drop** (or using GitHub Pages or Cloudflare Pages). You'll get an `https://` link.
+2. Open the link on your phone. On **iPhone**, use Safari → Share → **Add to Home Screen**. On **Android**, use Chrome → ⋮ → **Install app**.
+3. It opens full-screen like a native app. Choose **Run them on this phone** and set up a brain.
+
+## Optional: computer server (power mode)
 ## Free & open-source models
 Every agent can use a different AI model, and many of them are free:
 
@@ -71,7 +91,7 @@ Then pick voices in **Brain → Connect → Voice**, or per agent (tap the agent
 - **Lessons** on agents, prompts, workflows, memory, skills, free models, connectors, voice, connecting real agents, and safety & costs.
 - **Demo mode** that simulates everything, so you can learn before you have an API key.
 
-## Run it for real (5 minutes)
+### Run the computer server (5 minutes)
 You need Node.js 18+ and at least one AI model: free Ollama, a free OpenRouter/Groq key, or a Claude key.
 
 ```bash
@@ -108,7 +128,8 @@ Open the address it prints. On your phone, use your computer's Wi-Fi IP, e.g. `h
 - Agents are told not to save secrets in memory. Don't paste passwords or card numbers into prompts.
 
 ## How it fits together
-- `index.html`, `app.js`, `styles.css`, `characters.js` (CC0 characters and avatar art): the mobile app (no build step). `sw.js` and `manifest.webmanifest` make it installable.
+- `index.html`, `app.js`, `styles.css`, `characters.js` (CC0 characters and avatar art): the mobile app (no build step).
+- `engine.js`: the on-phone agent engine (agent loop, tools, storage in IndexedDB, WebLLM/OpenRouter/Groq/Claude brains). `vendor/anthropic-sdk.mjs`: the official Anthropic SDK bundled for browsers. `sw.js` and `manifest.webmanifest` make it installable.
 - `server/server.mjs`: runs each task as a tool-use loop (memory, skills, files, web, plugins, connectors), serves the app, and exposes an API under `/api/` that the app polls.
 - `server/providers.mjs`: Claude plus OpenAI-compatible providers (Ollama, OpenRouter, Groq, custom) and model discovery.
 - `server/connectors.mjs`: MCP client and connector catalog. `server/plugins.mjs` and `server/plugins/`: plugin loader and built-in plugins. `server/webtools.mjs`: free web search and fetch. `server/voice.mjs`: Whisper transcription for voice chat.

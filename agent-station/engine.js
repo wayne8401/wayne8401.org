@@ -70,7 +70,7 @@
       const saved = await idb.get('state');
       if (saved) state = { ...DEFAULT(), ...saved, settings: { ...DEFAULT().settings, ...(saved.settings || {}) } };
       for (const t of state.tasks) if (t.status === 'running' || t.status === 'queued') { t.status = 'error'; t.result = 'The app was closed before this task finished. Keep the app open while agents work.'; }
-      for (const r of state.runs) if (r.status === 'running') r.status = 'error';
+      for (const r of state.runs) if (r.status === 'running') { r.status = 'error'; r.steps.forEach((st) => { if (st.status === 'running') st.status = 'error'; }); }
     } catch { /* storage unavailable: run in memory */ }
   })();
 

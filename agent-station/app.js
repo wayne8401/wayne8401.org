@@ -407,11 +407,11 @@
     station: () => `
       <div class="hello card" data-region="hello"></div>
       <div class="stats" id="statsRow" data-region="stats"></div>
-      <h2>Station map</h2>
-      <div class="card" data-region="map"></div>
-      <div class="h2row"><h2>Agents</h2><button class="link" data-act="new-agent">✨ Add from gallery</button></div>
-      <div class="chips" data-region="stationChips"></div>
-      <div class="list" style="margin-top:10px" data-region="agents"></div>
+      <div class="h2row"><h2>🏭 Production line</h2><span class="muted tiny livetag" data-region="lineTag"></span></div>
+      <div class="card line" id="prodLine" data-region="line"></div>
+      <div class="h2row"><h2>🖥️ Workstations</h2><button class="link" data-act="new-agent">✨ Add agent</button></div>
+      <div class="floor" id="floor" data-region="floor"></div>
+      <details class="card mapcard"><summary><b>🛰️ Network map</b> <span class="muted tiny">how stations connect</span></summary><div data-region="map"></div></details>
       <h2>Live activity</h2>
       <div class="feed" data-region="feed"></div>`,
 
@@ -459,13 +459,37 @@
   };
 
   const REGIONS = {
+    lineTag: () => { const n = S.tasks.filter((t) => t.status === 'running').length; return n ? `<span class="dotlive"></span> ${n} in production` : 'idle'; },
+    line() {
+      const pkg = (t) => {
+        const a = agentById(t.agent) || { id: t.agent, name: t.agent };
+        return `<button class="pkg ${esc(t.status)}" data-act="task" data-id="${esc(t.id)}">${avatar(a, 'xs')}<span>${esc((t.title || t.prompt).replace(/^🎙️\s*/, '').slice(0, 34))}</span></button>`;
+      };
+      const q = S.tasks.filter((t) => t.status === 'queued'), w = S.tasks.filter((t) => t.status === 'running');
+      const d = S.tasks.filter((t) => t.status === 'done' || t.status === 'error').slice(0, 3);
+      const bay = (icon, name, list, cls, emptyMsg) => `<div class="pbay ${cls}"><div class="pbay-h">${icon} ${name} <b>${list.length}</b></div>${list.slice(0, 3).map(pkg).join('') || `<span class="muted tiny">${emptyMsg}</span>`}${list.length > 3 ? `<span class="muted tiny">+${list.length - 3} more</span>` : ''}</div>`;
+      return `<div class="pbays">${bay('📥', 'Queue', q, 'queue', 'empty')}<div class="parrow">›</div>${bay('⚙️', 'Working', w, 'work', 'waiting for work')}<div class="parrow">›</div>${bay('✅', 'Done', d, 'done', 'nothing yet')}</div>
+        <div class="conveyor ${w.length ? 'on' : ''}"><i></i></div>
+        ${!S.tasks.length ? '<p class="muted tiny center" style="margin:8px 0 0">Give an agent a task and watch it move down the line.</p>' : ''}`;
+    },
+    floor() {
+      const ICON = { research: '🔬', studio: '🎨', ops: '🗂️' };
+      return S.stations.map((st) => {
+        const team = S.agents.filter((a) => a.station === st.id);
+        const busy = team.filter((a) => a.status === 'running').length;
+        return `<div class="card wsta">
+          <div class="wf-head"><b class="grow">${ICON[st.id] || '🏢'} ${esc(st.name)}</b><span class="mbadge ${busy ? 'free' : ''}">${busy ? `${busy} working` : 'quiet'}</span></div>
+          <div class="desks">${team.map((a) => desk(a)).join('') || '<p class="muted tiny">No agents at this station yet.</p>'}</div>
+        </div>`;
+      }).join('') || empty('No stations yet.');
+    },
     hello: () => {
       if (S.mode === 'phone' && !S.models.length) return `<div><h3>${greeting()}</h3><p class="muted">Your agents run <b>on this phone</b>, but they need a brain first. It's free.</p></div>
         <button class="btn small" data-act="brain">🧠 Set up</button>`;
       const line = S.mode === 'demo' ? 'You are in <b>demo mode</b>: everything is simulated. Tap ⚙️ to run real agents.'
         : S.mode === 'phone' ? `Agents run on this phone · ${esc(shortModel(S.defaultModel))}${isFree(S.defaultModel) ? ' · free' : ''}`
         : `Connected to your station · ${esc(shortModel(S.defaultModel || S.model))}`;
-      return `<div><h3>${greeting()}</h3><p class="muted">${line}</p></div><button class="btn small" data-act="go-tasks">+ New task</button>`;
+      return `<div><h3>${greeting()}</h3><p class="muted">${line}</p>${S.mode === 'phone' ? `<button class="brainchip" data-act="brain">🧠 Brain: <b>${esc(shortModel(S.defaultModel))}</b> ▾</button>` : ''}</div><button class="btn small" data-act="go-tasks">+ New task</button>`;
     },
     stats() {
       const A = S.agents;
@@ -509,13 +533,15 @@
         return `<div class="card">
           <div class="wf-head"><div class="grow"><h3>${esc(w.name)}</h3><p class="muted">${esc(w.description || '')}${w.startedAt ? ` · last run ${ago(w.startedAt)}` : ''}</p></div>${pill(w.status)}</div>
           ${w.status === 'running' ? bar(w.steps.length ? (done / w.steps.length) * 100 : 0) : ''}
-          <ol class="steps">${w.steps.map((s, i) => {
-            const a = agentById(s.agent);
-            return `<li class="step ${esc(s.status)}" ${s.task ? `data-act="task" data-id="${esc(s.task)}"` : ''}>
-              <span class="mark">${s.status === 'done' ? '✓' : s.status === 'error' ? '!' : i + 1}</span>
-              <div><div class="title">${esc(s.name)}</div><div class="who">${esc(a ? a.name : s.agent)}${s.task ? ' · tap for result' : ''}</div></div>
-              <span class="t">${s.duration ? fmtDur(s.duration) : ''}</span></li>`;
-          }).join('')}</ol>
+          <div class="pline">${w.steps.map((s, i) => {
+            const a = agentById(s.agent) || { id: s.agent, name: s.agent };
+            return `${i ? `<span class="pbelt ${w.steps[i - 1].status === 'done' ? 'fed' : ''} ${s.status === 'running' ? 'on' : ''}"></span>` : ''}
+              <button class="machine s-${esc(s.status)}" ${s.task ? `data-act="task" data-id="${esc(s.task)}"` : 'tabindex="-1"'}>
+                <span class="mtop">${avatar(a, 'sm')}<span class="gear">⚙</span>${s.status === 'running' ? '<span class="box">📦</span>' : ''}</span>
+                <b>${i + 1}. ${esc(s.name)}</b><small>${esc(a.name)}${s.duration ? ` · ${fmtDur(s.duration)}` : ''}</small>
+                <span class="mstate">${{ done: '✅ done', running: '⚙️ working', error: '⚠️ stopped', pending: '⏸ waiting' }[s.status] || ''}</span>
+              </button>`;
+          }).join('')}</div>
           <div class="row" style="margin-top:12px">
             <button class="btn" data-act="run-flow" data-id="${esc(w.id)}" ${w.status === 'running' ? 'disabled' : ''}>${w.status === 'running' ? 'Running…' : '▶ Run'}</button>
             <button class="btn ghost narrow" data-act="del-flow" data-id="${esc(w.id)}" aria-label="Delete workflow">🗑</button>
@@ -575,6 +601,18 @@
       <div class="list">${S.plugins.map((p) => `
         <div class="card mem"><span class="emo">${p.icon}</span><div class="grow"><b>${esc(p.label)}</b><p class="muted tiny">${esc(p.description)}</p></div>
           <button class="toggle ${p.enabled ? 'on' : ''}" data-act="plugin-toggle" data-id="${esc(p.name)}" role="switch" aria-checked="${p.enabled}" aria-label="${esc(p.label)}"><i></i></button></div>`).join('') || empty('No plugins loaded.')}</div>`;
+  }
+
+  function desk(a) {
+    const say = a.status === 'running' ? (a.task || 'Working…') : a.status === 'waiting' ? (a.task || 'Waiting in line') : a.status === 'error' ? 'Ran into a problem. Tap me' : 'Ready for a task';
+    return `<button class="desk s-${esc(a.status)}" data-act="agent" data-id="${esc(a.id)}" aria-label="${esc(a.name)}: ${esc(say)}">
+      <span class="say">${esc(say)}</span>
+      <span class="worker">${avatar(a, 'md')}<i class="lamp"></i></span>
+      <span class="monitor ${a.status === 'running' ? 'on' : ''}"><i></i><i></i><i></i></span>
+      <span class="tabletop"></span>
+      <span class="plate"><b>${esc(a.name)}</b><small>${esc(shortModel(a.model))}${isChatOnly(a.model) ? ' · 💬' : ''}</small></span>
+      ${a.status === 'running' ? bar(a.progress) : '<span class="bar ghost"></span>'}
+    </button>`;
   }
 
   function greeting() {
@@ -1393,7 +1431,7 @@
     'add-step': () => { syncBuilder(); ui.builder.steps.push({ name: '', agent: S.agents[0]?.id, instructions: '' }); renderSheet(); },
     'rm-step': (i) => { syncBuilder(); ui.builder.steps.splice(+i, 1); renderSheet(); },
     'new-agent': () => openSheet('gallery'),
-    brain: () => { if (!isPhone()) return ACTIONS.settings(); openSheet('brain'); },
+    brain: () => { if (isPhone()) return openSheet('brain'); closeSheet(); ui.brain = 'connect'; go('brain'); },
     'download-model': (id) => {
       ui.loadingModel = id;
       toast('Downloading… keep the app open (use Wi-Fi)');
@@ -1571,12 +1609,12 @@
   const TOUR = [
     { title: 'Welcome to Agent Station 👋', text: 'This is mission control for your AI team. In about a minute you will know how to give agents real work, run team workflows, and teach them things.' },
     { tab: 'station', target: '#statsRow', title: 'Live numbers', text: 'How many agents are working, tasks finished, what they have learned, and spend — updated live.' },
-    { tab: 'station', target: '.orbit', title: 'The station map', text: 'Stations in the middle, agents around them. Moving lines and a green ring mean an agent is working. Tap any agent to look inside.' },
-    { tab: 'station', target: '[data-region=agents] .agent', title: 'Your agents', text: 'Each agent has a job. Scout researches the web, Quill writes, Atlas plans. You can add your own with “+ Add agent”.' },
+    { tab: 'station', target: '#prodLine', title: 'The production line', text: 'Every task travels down the line: Queue → Working → Done. Tap any package to see its progress and result.' },
+    { tab: 'station', target: '#floor .desk', title: 'Workstations', text: 'Each agent works at a desk in its station. A lit, typing monitor means it is working; the bubble says what it is doing right now. Tap a desk to look inside or give that agent a task.' },
     { tab: 'tasks', target: '#composer', title: 'Give a task', text: 'Pick an agent, describe what you want, press Send. You will see every step it takes, then the result and any files it saved.' },
     { tab: 'tasks', target: '#templates', title: 'Templates', text: 'Not sure what to write? Tap a template, then replace the [brackets] with your details.' },
     { tab: 'tasks', target: '#coach', title: 'Prompt coach', text: 'Lights up as your prompt gets clearer: Goal, Context, Format, Done when. “✨ Improve my prompt” rewrites a rough idea for you.' },
-    { tab: 'flows', target: '#flowList .card', title: 'Workflows', text: 'Teams of agents working in order — each step hands its result to the next. Press Run to try one, or build your own.' },
+    { tab: 'flows', target: '#flowList .card', title: 'Assembly lines', text: 'Workflows are assembly lines: each machine is an agent doing one step, and the 📦 moves along as work is handed over. Press Run to start one.' },
     { tab: 'brain', target: '#brainTabs', title: 'The Brain', text: 'Skills = playbooks agents learned. Memory = what they know about you. Files = their deliverables. Connect = choose AI models (free ones too), connectors and plugins.' },
     { tab: 'guide', target: '#lessons', title: 'Lessons', text: 'Short lessons for every feature, including how to connect real agents. You can replay this tour from here anytime.' },
     { title: 'You are ready! 🚀', text: 'Try your first task now — pick a template, fill in the blanks, and send it.', cta: 'Give my first task' },

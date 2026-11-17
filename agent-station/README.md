@@ -32,7 +32,7 @@ Pick the default model and each agent's model in **Brain → Connect** (or tap a
 Tokens are stored only on the server, in `DATA_DIR/connectors.json` (owner-read-only). To protect your computer, the app can't start arbitrary programs. Connectors that run a custom local command can only be added by editing that file on the server:
 
 ```json
-{ "local": [ { "id": "sqlite", "name": "SQLite", "command": "uvx", "args": ["mcp-server-sqlite", "--db-path", "/path/to/my.db"] } ] }
+{ "local": [ { "id": "git", "name": "Git", "command": "uvx", "args": ["mcp-server-git", "--repository", "/path/to/your/repo"] } ] }
 ```
 After restarting, switch it on in the app.
 

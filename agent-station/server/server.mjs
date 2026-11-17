@@ -123,6 +123,19 @@ function event(level, agent, msg) {
 }
 
 const agentById = (id) => state.agents.find((a) => a.id === id);
+// Agent Builder fields (mirrors cleanLook in characters.js).
+const LOOK_OPTS = { shape: ['round', 'square', 'hex', 'tall', 'wide'], eyes: ['dot', 'big', 'happy', 'sleepy', 'glasses', 'wink', 'owl', 'visor'], mouth: ['smile', 'grin', 'o', 'flat', 'cat', 'grille', 'none'], top: ['none', 'antenna', 'twin', 'dish', 'ears', 'fox', 'owl', 'leaf', 'star', 'bolt', 'toque', 'tuft', 'halo'] };
+function custom(b) {
+  const out = {};
+  if ('look' in b) {
+    const l = b.look && typeof b.look === 'object' ? b.look : null;
+    const hex = (v, d) => (/^#[0-9a-fA-F]{6}$/.test(v || '') ? v : d);
+    out.look = l ? { ...Object.fromEntries(Object.entries(LOOK_OPTS).map(([k, opts]) => [k, opts.includes(l[k]) ? l[k] : opts[0]])), bg: hex(l.bg, '#10284f'), fg: hex(l.fg, '#7fb6ff'), accent: hex(l.accent, '#ffd84d'), cheeks: !!l.cheeks } : null;
+  }
+  if ('pitch' in b) out.pitch = Math.max(0.5, Math.min(2, +b.pitch || 1));
+  if (b.traits && typeof b.traits === 'object') out.traits = Object.fromEntries(['warm', 'detail', 'playful', 'bold'].map((k) => [k, Math.max(0, Math.min(100, +b.traits[k] || 50))]));
+  return out;
+}
 // A speaking voice is a consented cloned voice ("voice-…") or a Kokoro studio voice ("studio:af_heart").
 const validVoice = (v) => (typeof v === 'string' && (state.voices.some((x) => x.id === v) || /^studio:[ab][fm]_[a-z]{2,20}$/.test(v)) ? v : '');
 const slug = (s) => String(s).toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60);
@@ -540,7 +553,7 @@ function statusView(files, clone = {}) {
       const u = state.usage[a.id] || { tokens: 0, cost: 0 };
       const queued = state.tasks.filter((t) => t.agent === a.id && t.status === 'queued').length;
       return {
-        id: a.id, name: a.name, role: a.role, station: a.station, instructions: a.instructions, model: agentModel(a), modelChosen: a.model || '', voiceId: a.voiceId || '', avatar: a.avatar || '',
+        id: a.id, name: a.name, role: a.role, station: a.station, instructions: a.instructions, model: agentModel(a), modelChosen: a.model || '', voiceId: a.voiceId || '', avatar: a.avatar || '', look: a.look || null, pitch: a.pitch || null, traits: a.traits || null,
         status: l.status === 'running' ? 'running' : l.status === 'error' ? 'error' : queued ? 'waiting' : 'idle',
         task: l.status === 'running' ? l.task : l.status === 'error' ? l.task : queued ? `${queued} task(s) queued` : 'Ready for a task',
         progress: l.progress || 0, tokens: u.tokens, cost: +u.cost.toFixed(4),
@@ -604,7 +617,7 @@ const routes = [
     if (!b.name) throw httpError(400, 'Agent needs a name');
     let id = slug(b.name) || uid('agent'); if (agentById(id)) id = `${id}-${crypto.randomBytes(2).toString('hex')}`;
     const station = state.stations.some((s) => s.id === b.station) ? b.station : state.stations[0].id;
-    const a = { id, name: String(b.name).slice(0, 40), role: String(b.role || 'Assistant').slice(0, 60), station, instructions: String(b.instructions || '').slice(0, 4000), model: String(b.model || ''),
+    const a = { ...custom(b), id, name: String(b.name).slice(0, 40), role: String(b.role || 'Assistant').slice(0, 60), station, instructions: String(b.instructions || '').slice(0, 4000), model: String(b.model || ''),
       voiceId: validVoice(b.voiceId), avatar: /^[a-z0-9-]{1,30}$/.test(b.avatar || '') ? b.avatar : '' };
     state.agents.push(a); event('success', a.id, `${a.name} joined ${station}`); save(); return a;
   }],
@@ -613,6 +626,8 @@ const routes = [
     if ('model' in b) { a.model = String(b.model || ''); event('info', a.id, `${a.name} now uses ${agentModel(a)}`); }
     if ('voiceId' in b) { a.voiceId = validVoice(b.voiceId); event('info', a.id, a.voiceId ? `${a.name} has a new speaking voice` : `${a.name} uses the device voice`); }
     if ('avatar' in b) a.avatar = /^[a-z0-9-]{0,30}$/.test(b.avatar || '') ? b.avatar || '' : a.avatar;
+    Object.assign(a, custom(b));
+    if (typeof b.station === 'string' && state.stations.some((s) => s.id === b.station)) a.station = b.station;
     for (const k of ['name', 'role', 'instructions']) if (typeof b[k] === 'string' && b[k].trim()) a[k] = b[k].slice(0, k === 'instructions' ? 4000 : 60);
     save(); return a;
   }],

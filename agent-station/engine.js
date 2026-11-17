@@ -80,6 +80,14 @@
     save();
   }
   const agentById = (id) => state.agents.find((a) => a.id === id);
+  // Agent Builder fields: custom look, voice pitch and personality sliders.
+  function custom(b) {
+    const out = {};
+    if ('look' in b) out.look = window.AgentStationCharacters?.cleanLook(b.look) || null;
+    if ('pitch' in b) out.pitch = Math.max(0.5, Math.min(2, +b.pitch || 1));
+    if (b.traits && typeof b.traits === 'object') out.traits = Object.fromEntries(['warm', 'detail', 'playful', 'bold'].map((k) => [k, Math.max(0, Math.min(100, +b.traits[k] || 50))]));
+    return out;
+  }
 
   /* ----------------------------------------------------------- brains */
   // Free models that run on the phone (GGUF, under the 2 GB browser limit, no sign-up needed).
@@ -613,13 +621,17 @@ You are running on a chat-only brain: you can't use tools, browse, save files or
     ['POST', /^agents$/, (_, b) => {
       if (!b.name) throw httpError('Agent needs a name');
       let id = slug(b.name) || uid('agent'); if (agentById(id)) id += '-' + Math.random().toString(36).slice(2, 5);
-      const a = { id, name: String(b.name).slice(0, 40), role: String(b.role || 'Assistant').slice(0, 60), station: state.stations.some((s) => s.id === b.station) ? b.station : state.stations[0].id, instructions: String(b.instructions || '').slice(0, 4000), model: String(b.model || ''), avatar: /^[a-z0-9-]{1,30}$/.test(b.avatar || '') ? b.avatar : '' };
+      const extra = custom(b);
+      const a = { ...extra, id, name: String(b.name).slice(0, 40), role: String(b.role || 'Assistant').slice(0, 60), station: state.stations.some((s) => s.id === b.station) ? b.station : state.stations[0].id, instructions: String(b.instructions || '').slice(0, 4000), model: String(b.model || ''), avatar: /^[a-z0-9-]{1,30}$/.test(b.avatar || '') ? b.avatar : '' };
       state.agents.push(a); event('success', a.id, `${a.name} joined ${a.station}`); save(); return a;
     }],
     ['PATCH', /^agents\/(.+)$/, ([id], b) => {
       const a = agentById(id); if (!a) throw httpError('No such agent');
       if ('model' in b) { a.model = String(b.model || ''); event('info', a.id, `${a.name} now uses ${agentModel(a) || 'no model yet'}`); }
       if ('avatar' in b && /^[a-z0-9-]{0,30}$/.test(b.avatar || '')) a.avatar = b.avatar || '';
+      Object.assign(a, custom(b));
+      for (const k of ['name', 'role', 'instructions']) if (typeof b[k] === 'string' && b[k].trim()) a[k] = b[k].slice(0, k === 'instructions' ? 4000 : k === 'name' ? 40 : 60);
+      if (typeof b.station === 'string' && state.stations.some((s) => s.id === b.station)) a.station = b.station;
       save(); return a;
     }],
     ['PATCH', /^settings$/, (_, b) => { if ('defaultModel' in b) state.settings.defaultModel = String(b.defaultModel || ''); save(); return { defaultModel: defaultModel() }; }],

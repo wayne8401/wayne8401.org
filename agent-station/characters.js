@@ -164,5 +164,24 @@
     },
   ];
 
-  window.AgentStationCharacters = { CHARACTERS, LOOKS, avatarSvg, byId: (id) => CHARACTERS.find((c) => c.id === id) };
+  // Parts for the Agent Builder (all original art, CC0).
+  const OPTIONS = {
+    shape: ['round', 'square', 'hex', 'tall', 'wide'],
+    eyes: ['dot', 'big', 'happy', 'sleepy', 'glasses', 'wink', 'owl', 'visor'],
+    mouth: ['smile', 'grin', 'o', 'flat', 'cat', 'grille', 'none'],
+    top: ['none', 'antenna', 'twin', 'dish', 'ears', 'fox', 'owl', 'leaf', 'star', 'bolt', 'toque', 'tuft', 'halo'],
+    bg: ['#10284f', '#0f3b4a', '#123d2c', '#2b1f55', '#4a1036', '#4a2410', '#4a3a0a', '#2a2f3a', '#1d1a4a', '#163a16', '#3a2a1a', '#05070f'],
+    fg: ['#7fb6ff', '#38e8ff', '#4dffa6', '#b9a3ff', '#ff7ad9', '#ff9a4d', '#ffd84d', '#a9b8d6', '#e8e2ff', '#9be37a', '#c99a6b', '#ffa3c2'],
+    accent: ['#ffd84d', '#38e8ff', '#4dffa6', '#ff7aa8', '#ffb84d', '#ffffff', '#9be37a', '#ff5c7a'],
+  };
+  // Keep only known parts and plain colours, so a stored look can never inject markup.
+  function cleanLook(l) {
+    if (!l || typeof l !== 'object') return null;
+    const hex = (v, d) => (/^#[0-9a-fA-F]{6}$/.test(v || '') ? v : d);
+    const pick = (k, d) => (OPTIONS[k].includes(l[k]) ? l[k] : d);
+    return { shape: pick('shape', 'round'), eyes: pick('eyes', 'dot'), mouth: pick('mouth', 'smile'), top: pick('top', 'none'),
+      bg: hex(l.bg, '#10284f'), fg: hex(l.fg, '#7fb6ff'), accent: hex(l.accent, '#ffd84d'), cheeks: !!l.cheeks };
+  }
+
+  window.AgentStationCharacters = { CHARACTERS, LOOKS, OPTIONS, avatarSvg, cleanLook, byId: (id) => CHARACTERS.find((c) => c.id === id) };
 })();

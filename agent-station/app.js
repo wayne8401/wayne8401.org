@@ -297,12 +297,12 @@
       ['POST', /^workflows$/, (_, b) => { const wf = { id: uid('wf'), trigger: 'manual', ...b }; d.workflows.push(wf); return wf; }],
       ['DELETE', /^workflows\/(.+)$/, ([id]) => { d.workflows = d.workflows.filter((w) => w.id !== id); return { ok: true }; }],
       ['POST', /^workflows\/(.+)\/run$/, ([id], b) => runWorkflow(d.workflows.find((w) => w.id === id), b.input)],
-      ['POST', /^agents$/, (_, b) => { let id = slug(b.name); if (d.agents.some((a) => a.id === id)) id += '-' + Math.random().toString(36).slice(2, 5); const a = { id, name: b.name, role: b.role || 'Assistant', station: b.station || 'research', instructions: b.instructions || '', avatar: b.avatar || '', voiceId: '', model: b.model || '' }; d.agents.push(a); ev('success', id, `${a.name} joined the station`); return a; }],
+      ['POST', /^agents$/, (_, b) => { let id = slug(b.name); if (d.agents.some((a) => a.id === id)) id += '-' + Math.random().toString(36).slice(2, 5); const a = { id, name: b.name, role: b.role || 'Assistant', station: b.station || 'research', instructions: b.instructions || '', avatar: b.avatar || '', voiceId: '', model: b.model || '', look: window.AgentStationCharacters?.cleanLook(b.look) || null, pitch: b.pitch || null, traits: b.traits || null }; d.agents.push(a); ev('success', id, `${a.name} joined the station`); return a; }],
       ['POST', /^skills$/, (_, b) => { const s = { id: slug(b.name), name: b.name, description: b.description, instructions: b.instructions, author: 'you', uses: 0, updatedAt: now() }; d.skills = [s, ...d.skills.filter((k) => k.id !== s.id)]; ev('success', null, `You taught the station skill “${s.name}”`); return s; }],
       ['DELETE', /^skills\/(.+)$/, ([id]) => { d.skills = d.skills.filter((s) => s.id !== id); return { ok: true }; }],
       ['POST', /^memories$/, (_, b) => { const m = { id: uid('mem'), ts: now(), agent: b.agent || null, scope: b.agent ? 'agent' : 'shared', fact: b.fact, source: 'you' }; d.memories.unshift(m); return m; }],
       ['DELETE', /^memories\/(.+)$/, ([id]) => { d.memories = d.memories.filter((m) => m.id !== id); return { ok: true }; }],
-      ['PATCH', /^agents\/(.+)$/, ([id], b) => { const a = d.agents.find((x) => x.id === id); if ('avatar' in b) a.avatar = b.avatar; if ('model' in b) { a.model = b.model; ev('info', id, `${a.name} now uses ${b.model || d.defaultModel}`); } return a; }],
+      ['PATCH', /^agents\/(.+)$/, ([id], b) => { const a = d.agents.find((x) => x.id === id); if ('avatar' in b) a.avatar = b.avatar; if ('look' in b) a.look = window.AgentStationCharacters?.cleanLook(b.look) || null; for (const k of ['pitch', 'traits', 'name', 'role', 'instructions', 'station']) if (k in b && b[k] !== '') a[k] = b[k]; if ('model' in b) { a.model = b.model; ev('info', id, `${a.name} now uses ${b.model || d.defaultModel}`); } return a; }],
       ['PATCH', /^settings$/, (_, b) => { if (b.defaultModel) d.defaultModel = b.defaultModel; return { defaultModel: d.defaultModel }; }],
       ['POST', /^models\/refresh$/, () => ({ count: DEMO_MODELS.length })],
       ['POST', /^connectors\/remote$/, (_, b) => { const id = 'remote-' + slug(b.name || 'connector'); d.connectors.push({ id, name: b.name || b.url, icon: '🔗', desc: b.url, requires: 'Remote MCP server', needs: [], custom: true, type: 'http', enabled: false, status: 'off', tools: [] }); return connect(id); }],
@@ -392,7 +392,7 @@
   /* ========================================================= components */
   const pill = (s) => `<span class="pill s-${esc(s)}">${esc(s)}</span>`;
   const CH = window.AgentStationCharacters || { CHARACTERS: [], LOOKS: {}, avatarSvg: () => '', byId: () => null };
-  const lookOf = (a) => CH.LOOKS[a?.avatar] || CH.byId(a?.avatar)?.look || CH.LOOKS[a?.id] || null;
+  const lookOf = (a) => (a?.look && CH.cleanLook(a.look)) || CH.LOOKS[a?.avatar] || CH.byId(a?.avatar)?.look || CH.LOOKS[a?.id] || null;
   const avatar = (a, size = '') => {
     const look = lookOf(a);
     return look ? `<span class="avatar art ${size}">${CH.avatarSvg(look, esc(a.name || ''))}</span>`
@@ -409,7 +409,7 @@
       <div class="stats" id="statsRow" data-region="stats"></div>
       <div class="h2row"><h2>🏭 Production line</h2><span class="muted tiny livetag" data-region="lineTag"></span></div>
       <div class="card line" id="prodLine" data-region="line"></div>
-      <div class="h2row"><h2>🖥️ Workstations</h2><button class="link" data-act="new-agent">✨ Add agent</button></div>
+      <div class="h2row"><h2>🖥️ Workstations</h2><span><button class="link" data-act="forge">🛠️ Build</button> · <button class="link" data-act="new-agent">✨ Gallery</button></span></div>
       <div class="floor" id="floor" data-region="floor"></div>
       <details class="card mapcard"><summary><b>🛰️ Network map</b> <span class="muted tiny">how stations connect</span></summary><div data-region="map"></div></details>
       <h2>Live activity</h2>
@@ -605,12 +605,12 @@
 
   function desk(a) {
     const say = a.status === 'running' ? (a.task || 'Working…') : a.status === 'waiting' ? (a.task || 'Waiting in line') : a.status === 'error' ? 'Ran into a problem. Tap me' : 'Ready for a task';
-    return `<button class="desk s-${esc(a.status)}" data-act="agent" data-id="${esc(a.id)}" aria-label="${esc(a.name)}: ${esc(say)}">
+    return `<button class="desk s-${esc(a.status)} ${ui.flashAgent === a.id ? 'flash' : ''}" data-act="agent" data-id="${esc(a.id)}" aria-label="${esc(a.name)}: ${esc(say)}">
       <span class="say">${esc(say)}</span>
       <span class="worker">${avatar(a, 'md')}<i class="lamp"></i></span>
       <span class="monitor ${a.status === 'running' ? 'on' : ''}"><i></i><i></i><i></i></span>
       <span class="tabletop"></span>
-      <span class="plate"><b>${esc(a.name)}</b><small>${esc(shortModel(a.model))}${isChatOnly(a.model) ? ' · 💬' : ''}</small></span>
+      <span class="plate"><b>${esc(a.name)}</b><small>${a.model ? `${esc(shortModel(a.model))}${isChatOnly(a.model) ? ' · 💬' : ''}` : esc(a.role)}</small></span>
       ${a.status === 'running' ? bar(a.progress) : '<span class="bar ghost"></span>'}
     </button>`;
   }
@@ -683,7 +683,7 @@
     { id: 'free-models', icon: '🆓', title: 'Free & open-source AI models', time: '3 min', body: md('Agents don\'t have to use a paid model. Each agent can run on a different "brain":\n\n- **Ollama: 100% free and private.** Runs open models (Qwen, Llama, Mistral, Gemma, DeepSeek…) on your own computer. Install from **ollama.com**, then run `ollama pull qwen3:8b`. The station finds it automatically.\n- **OpenRouter: free hosted models.** Make a free key at openrouter.ai; models ending in **:free** cost nothing (with rate limits).\n- **Groq: very fast, free tier.** Free key at console.groq.com.\n- **LM Studio / vLLM / llama.cpp:** any OpenAI-compatible server works.\n- **Claude:** paid, but the strongest at long multi-step work.\n\n**Tips:** pick models that support **tools** (qwen3, llama3.1, mistral-small). Small local models are great for drafts and simple lookups; give hard research to bigger models. Switch on the **Step-by-step thinking** connector to help small models plan.\n\nChange models in **Brain → Connect**, or per agent by tapping it on the Station tab.') },
     { id: 'connectors', icon: '🧰', title: 'Connectors & plugins', time: '2 min', body: md('**Connectors** plug apps into your agents using **MCP**, an open standard. Switch one on in **Brain → Connect** and every agent can use its tools:\n\n- 🌐 **Web browser**: clicks around real websites\n- 🗂️ **Files**, 🕸️ **Knowledge graph**, 🕒 **Time**, 📰 **Web page reader**\n- 🐙 **GitHub** and 📒 **Notion** (need a token from your account)\n- 🔗 **Add by URL**: any remote MCP server\n\n**Plugins** are tiny built-in tools (calculator, weather, Wikipedia). Developers can add one by dropping a file into `server/plugins/`.\n\nOnly connect services you trust, and give tokens the least access they need.') },
     { id: 'voice', icon: '🎙️', title: 'Talk to your agents', time: '1 min', body: md('Tap **🎙️** at the top of any screen (or **Talk** on an agent) and just speak.\n\n- The agent works on what you said, then **reads its answer aloud** in a few short sentences. Longer details go into a file you can open.\n- **Hands-free** keeps the conversation going: after each answer it listens again. Say **"goodbye"** to stop.\n- The **🎤** button in the task box lets you dictate a prompt instead of typing.\n- Change the language, voice and speaking speed in **Brain → Connect → Voice**.\n\nIt\'s free: your phone recognizes speech and speaks with its own voices. (Firefox users: the station can transcribe with open-source Whisper instead.)') },
-    { id: 'characters', icon: '✨', title: 'Characters & free voices', time: '2 min', body: md('Tap **✨ Add from gallery** on the Station tab to add a ready-made character: **Novi** (research), **Zipp** (fact-checks), **Professor Hootley** (tutor), **Kit** (study buddy), **Confetti** (social posts), **Luma** (stories), **Pip** (budgets), **Mira** (email), **Wrenna** (tech help), **Rova** (travel), **Basil** (cooking) and **Calma** (routines).\n\n**Free to use, no copyright worries:** the characters and avatars were made for Agent Station and are released under **CC0**. Use, change and share them, even commercially.\n\n**Voices:** each character has a suggested **studio voice** from Kokoro, an open-source model licensed **Apache-2.0** (free for any use). Install it on the server computer with `pip install kokoro`, then run `python voice_server.py` in `server/voice-clone`. Without it, characters use your device voice at their own pitch.\n\nChange any agent\'s voice: tap the agent → **Speaking voice**.') },
+    { id: 'characters', icon: '✨', title: 'Characters & free voices', time: '2 min', body: md('Build your own agent with **🛠️ Build** on the Station tab: design its look, name, job, personality sliders, brain and voice, then watch it get assembled at its desk. Tap **🎨 Customize** on any agent to change it later. Or tap **✨ Gallery** to add a ready-made character: **Novi** (research), **Zipp** (fact-checks), **Professor Hootley** (tutor), **Kit** (study buddy), **Confetti** (social posts), **Luma** (stories), **Pip** (budgets), **Mira** (email), **Wrenna** (tech help), **Rova** (travel), **Basil** (cooking) and **Calma** (routines).\n\n**Free to use, no copyright worries:** the characters and avatars were made for Agent Station and are released under **CC0**. Use, change and share them, even commercially.\n\n**Voices:** each character has a suggested **studio voice** from Kokoro, an open-source model licensed **Apache-2.0** (free for any use). Install it on the server computer with `pip install kokoro`, then run `python voice_server.py` in `server/voice-clone`. Without it, characters use your device voice at their own pitch.\n\nChange any agent\'s voice: tap the agent → **Speaking voice**.') },
     { id: 'clone', icon: '🧬', title: 'Clone a voice (free)', time: '2 min', body: md('Your agents can speak with a **cloned voice**, such as your own, so voice chat sounds like a real person.\n\n1. On the server computer, start the free cloner once: `cd server/voice-clone`, `pip install -r requirements.txt`, `python voice_server.py`. It uses **Chatterbox**, an open-source model that runs on your machine.\n2. In **Brain → Connect → Voice**, tap **Clone a voice**, confirm consent, and read the short script aloud (about 20 seconds).\n3. Tap an agent → **Speaking voice** → pick the new voice.\n\n**Rules that matter:** only clone your own voice or someone who agreed. The sample must be recorded live with a spoken consent line, and existing recordings can\'t be uploaded. Never use a cloned voice to trick or impersonate anyone; in many places that\'s illegal. Every clip has an inaudible AI watermark. Delete a voice anytime.') },
     { id: 'phone', icon: '📱', title: 'Run agents on your phone', time: '2 min', body: md('Agents run **inside this app**: no computer needed. They just need a **brain** (an AI model). Open ⚙️ → **On this phone**, then **Brain → Connect → Set up brains**:\n\n- **On this phone (free, private, offline):** download a free model once: Qwen, Llama, Gemma, SmolLM, DeepSeek or TinyLlama (0.5–2 GB, use Wi-Fi). 🛠 models use tools; 💬 models just chat. It runs on your phone\'s processor (and graphics chip when available) and uses tools natively. Small models are great for writing, planning and simple lookups.\n- **Free online:** paste a free key from **openrouter.ai** or **console.groq.com**. Bigger, smarter models; needs internet.\n- **Claude:** paste your key for the strongest agent with real web search (paid per use).\n\nYour tasks, memories, skills, files and workflows are saved on the phone. **Keep the app open** while agents work. Phones pause apps in the background, so the app keeps your screen awake during tasks.\n\nConnectors and voice cloning need a computer (see *Connect real agents*).') },
     { id: 'connect', icon: '🔌', title: 'Connect a computer (power mode)', time: '5 min', body: md('Optional: run the station server on a computer for extras the phone can\'t do: **MCP connectors**, **studio voices** and **voice cloning**, and bigger local models via Ollama.\n\n1. Choose a brain: install **Ollama** (free, ollama.com) and run `ollama pull qwen3:8b`, **or** get a Claude key at console.anthropic.com, **or** a free OpenRouter/Groq key.\n2. On a computer with Node.js 18+, open the `agent-station/server` folder and run:\n```\nnpm install\nnpm start\n```\n(For Claude: `ANTHROPIC_API_KEY=your-key npm start`. For OpenRouter: `OPENROUTER_API_KEY=… npm start`.)\n3. Open the address it prints (on your phone, use the computer\'s Wi-Fi IP, e.g. `http://192.168.1.20:8787`).\n4. The app connects automatically. Install it: **Share → Add to Home Screen**.\n\nRunning it somewhere public? Set `STATION_TOKEN` and enter the same token in ⚙️ Settings.') },
@@ -714,7 +714,7 @@
       ${!S.studio?.voices?.length && isServer() ? '<p class="muted tiny" style="margin:-8px 0 12px">Want natural free voices? See Brain → Connect → Voice.</p>' : ''}
       <label class="field">🧠 AI model<select data-change="agent-model" data-id="${esc(a.id)}">${modelOptions(a.modelChosen, true)}</select></label>
       ${isChatOnly(a.model) ? `<p class="muted tiny" style="margin:-8px 0 12px">💬 ${esc(a.name)} is on a chat-only brain: it answers directly but can't save files or memories, or use plugins. Pick a 🛠 model for those.</p>` : ''}
-      <div class="row"><button class="btn" data-act="task-for" data-id="${esc(a.id)}">✍️ Give a task</button><button class="btn ghost" data-act="voice-open" data-id="${esc(a.id)}">🎙️ Talk</button></div>
+      <div class="row"><button class="btn" data-act="task-for" data-id="${esc(a.id)}">✍️ Task</button><button class="btn ghost" data-act="voice-open" data-id="${esc(a.id)}">🎙️ Talk</button><button class="btn ghost" data-act="forge" data-id="${esc(a.id)}">🎨 Customize</button></div>
       ${a.instructions ? `<h2>How ${esc(a.name)} works</h2><div class="card"><p class="muted">${esc(a.instructions)}</p></div>` : ''}
       <h2>Recent tasks</h2>
       <div class="list">${tasks.map((t) => `<button class="card taskcard" data-act="task" data-id="${esc(t.id)}"><div class="wf-head"><span class="grow">${esc(t.title || t.prompt.slice(0, 70))}</span>${pill(t.status)}</div></button>`).join('') || empty('No tasks yet')}</div>
@@ -789,6 +789,7 @@
     if (sh.kind === 'voice') html = voiceSheet();
     if (sh.kind === 'clone') html = cloneSheet();
     if (sh.kind === 'gallery') html = gallerySheet();
+    if (sh.kind === 'forge') html = forgeSheet();
     if (sh.kind === 'brain') html = brainSheet();
     if (sh.kind === 'welcome') html = welcomeSheet();
     if (sh.kind === 'character') { const c = CH.byId(sh.id); if (!c) return closeSheet(); html = characterSheet(c); }
@@ -909,7 +910,7 @@
     if (v.startsWith('studio:')) { const sv = studioVoice(v); return sv ? `${sv.name} (${sv.accent}, studio)` : v.slice(7); }
     const c = S.voices?.find((x) => x.id === v); return c ? `🧬 ${c.name}` : 'Device voice';
   };
-  const pitchOf = (agentId) => CH.byId(agentById(agentId)?.avatar)?.pitch || 1;
+  const pitchOf = (agentId) => agentById(agentId)?.pitch || CH.byId(agentById(agentId)?.avatar)?.pitch || 1;
   const splitSpeech = (text, max = 220) => {
     const parts = text.match(/[^.!?]+[.!?]*\s*/g) || [text];
     const chunks = []; let cur = '';
@@ -1110,6 +1111,125 @@
     </div>`;
   }
 
+
+  /* ------------------------------------------------------- agent builder */
+  const TRAITS = [['warm', 'Formal', 'Warm'], ['detail', 'Brief', 'Detailed'], ['playful', 'Serious', 'Playful'], ['bold', 'Careful', 'Bold']];
+  const NAME_IDEAS = ['Sprocket', 'Maple', 'Comet', 'Pebble', 'Indigo', 'Cobalt', 'Willow', 'Zephyr', 'Clover', 'Marlo', 'Tilly', 'Bram', 'Vega', 'Juno', 'Ziggy', 'Opal', 'Rusty', 'Mochi', 'Nimbus', 'Fable'];
+  const ROLE_IDEAS = [
+    { role: 'Research helper', icon: '🔎', station: 'research', base: 'You find reliable information, compare sources, and summarize clearly with links.' },
+    { role: 'Writer', icon: '✍️', station: 'studio', base: 'You write clear, friendly emails, posts and documents in the tone the user asks for.' },
+    { role: 'Planner', icon: '🗺️', station: 'ops', base: 'You turn goals into practical step-by-step plans, checklists and schedules.' },
+    { role: 'Study tutor', icon: '🎓', station: 'studio', base: 'You explain topics step by step for a beginner and check understanding with quick questions.' },
+    { role: 'Budget helper', icon: '💰', station: 'ops', base: 'You build simple budgets and compare prices, showing the math with the calculator. General information, not financial advice.' },
+    { role: 'Creative partner', icon: '💡', station: 'studio', base: 'You brainstorm ideas, names, stories and plans with energy and originality.' },
+  ];
+  const FORGE_STEPS = ['🎨 Look', '🪪 Identity', '🎛️ Personality', '🧠 Brain', '🚀 Build'];
+  const rnd = (arr) => arr[Math.floor(Math.random() * arr.length)];
+  const randomLook = () => { const O = CH.OPTIONS; return { shape: rnd(O.shape), eyes: rnd(O.eyes), mouth: rnd(O.mouth), top: rnd(O.top), bg: rnd(O.bg), fg: rnd(O.fg), accent: rnd(O.accent), cheeks: Math.random() < 0.4 }; };
+
+  function personalityText(t, name) {
+    const lines = [];
+    lines.push(t.warm >= 65 ? 'be warm, kind and encouraging' : t.warm <= 35 ? 'be professional and to the point' : 'be friendly but focused');
+    lines.push(t.detail >= 65 ? 'give thorough, detailed answers with examples' : t.detail <= 35 ? 'keep answers short: a few sentences or bullets' : 'keep answers clear and reasonably concise');
+    lines.push(t.playful >= 65 ? 'add a little light humor' : t.playful <= 35 ? 'stay serious and factual' : 'keep a relaxed, natural tone');
+    lines.push(t.bold >= 65 ? 'be decisive: recommend one clear option' : t.bold <= 35 ? 'be careful: point out risks and anything uncertain' : 'weigh the options, then suggest a sensible choice');
+    return `Style: ${name || 'This agent'} should ${lines.join('; ')}.`;
+  }
+  const forgeInstructions = (f) => [f.base.trim(), personalityText(f.traits, f.name), f.notes.trim()].filter(Boolean).join('\n');
+
+  function openForge(agentId) {
+    const a = agentId && agentById(agentId);
+    ui.forge = a ? {
+      step: 0, editId: a.id, look: { ...(lookOf(a) || randomLook()) }, name: a.name, role: a.role, station: a.station,
+      base: String(a.instructions || '').split('\n').filter((l) => !l.startsWith('Style:')).join('\n'), notes: '',
+      traits: { warm: 50, detail: 50, playful: 50, bold: 50, ...(a.traits || {}) }, model: a.modelChosen || '', pitch: a.pitch || pitchOf(a.id),
+    } : {
+      step: 0, editId: '', look: randomLook(), name: rnd(NAME_IDEAS), role: '', station: S.stations[0]?.id || 'research', base: '', notes: '',
+      traits: { warm: 60, detail: 50, playful: 45, bold: 50 }, model: '', pitch: 1,
+    };
+    if (ui.sheet) closeSheet();
+    openSheet('forge');
+  }
+
+  const forgeAvatar = (look, cls = '') => `<span class="avatar art ${cls}">${CH.avatarSvg(CH.cleanLook(look), '')}</span>`;
+  function forgePreview(f) {
+    return `<div class="fpreview">${forgeAvatar(f.look, 'xl')}<div><b>${esc(f.name || 'New agent')}</b><small>${esc(f.role || 'Pick a job')}</small></div></div>`;
+  }
+  function partRow(label, key) {
+    const f = ui.forge;
+    return `<div class="frow"><div class="flabel">${label}</div><div class="fopts">${CH.OPTIONS[key].map((v) =>
+      `<button type="button" class="fopt ${f.look[key] === v ? 'on' : ''}" data-act="fb-pick" data-id="${key}:${v}" aria-label="${label} ${v}">${forgeAvatar({ ...f.look, [key]: v }, 'sm')}</button>`).join('')}</div></div>`;
+  }
+  function swatchRow(label, key) {
+    const f = ui.forge;
+    return `<div class="frow"><div class="flabel">${label}</div><div class="fopts">${CH.OPTIONS[key].map((v) =>
+      `<button type="button" class="swatch ${f.look[key] === v ? 'on' : ''}" style="background:${v}" data-act="fb-pick" data-id="${key}:${v}" aria-label="${label} ${v}"></button>`).join('')}</div></div>`;
+  }
+
+  function forgeSheet() {
+    const f = ui.forge; if (!f) return '';
+    const steps = `<div class="fsteps">${FORGE_STEPS.map((t, i) => `<button type="button" class="fstep ${i === f.step ? 'on' : i < f.step ? 'done' : ''}" data-act="fb-step" data-id="${i}">${t}</button>`).join('')}</div>`;
+    let body = '';
+    if (f.step === 0) {
+      body = `<div class="row" style="margin-bottom:8px"><button type="button" class="btn ghost small" data-act="fb-random">🎲 Randomize</button><label class="hf"><input type="checkbox" data-fbcheck="cheeks" ${f.look.cheeks ? 'checked' : ''}> Rosy cheeks</label></div>
+        ${partRow('Head', 'shape')}${partRow('Eyes', 'eyes')}${partRow('Mouth', 'mouth')}${partRow('Top', 'top')}
+        ${swatchRow('Face', 'fg')}${swatchRow('Backdrop', 'bg')}${swatchRow('Accent', 'accent')}`;
+    } else if (f.step === 1) {
+      body = `<label class="field">Name<span class="row"><input data-fb="name" maxlength="40" value="${esc(f.name)}" placeholder="e.g. Sprocket"><button type="button" class="btn ghost narrow" data-act="fb-name" aria-label="Random name">🎲</button></span></label>
+        <div class="flabel">Job</div>
+        <div class="fjobs">${ROLE_IDEAS.map((r, i) => `<button type="button" class="chip ${f.role === r.role ? 'active' : ''}" data-act="fb-role" data-id="${i}">${r.icon} ${esc(r.role)}</button>`).join('')}</div>
+        <label class="field" style="margin-top:10px">Or describe the job yourself<input data-fb="role" maxlength="60" value="${esc(f.role)}" placeholder="e.g. Garden helper"></label>
+        <label class="field">What does it do? (one or two sentences)<textarea data-fb="base" rows="3" placeholder="You help me plan my garden: what to plant, when to water…">${esc(f.base)}</textarea></label>
+        <div class="flabel">Station</div>
+        <div class="fjobs">${S.stations.map((st) => `<button type="button" class="chip ${f.station === st.id ? 'active' : ''}" data-act="fb-station" data-id="${esc(st.id)}">${esc(st.name)}</button>`).join('')}</div>`;
+    } else if (f.step === 2) {
+      body = `${TRAITS.map(([k, lo, hi]) => `<div class="trait"><div class="tlabels"><span>${lo}</span><span>${hi}</span></div><input type="range" min="0" max="100" step="5" value="${f.traits[k]}" data-fbtrait="${k}" aria-label="${lo} to ${hi}"></div>`).join('')}
+        <div class="card ptext" id="forgePersona">${esc(personalityText(f.traits, f.name))}</div>
+        <label class="field" style="margin-top:10px">Anything else it should always do? (optional)<textarea data-fb="notes" rows="2" placeholder="e.g. Always answer in Spanish. Use metric units.">${esc(f.notes)}</textarea></label>`;
+    } else if (f.step === 3) {
+      body = `<label class="field">🧠 Brain (AI model)<select data-fbsel="model">${modelOptions(f.model, true)}</select></label>
+        ${S.mode === 'phone' ? '<button type="button" class="link" data-act="brain">Download more free brains ›</button>' : ''}
+        <div class="trait" style="margin-top:14px"><div class="tlabels"><span>🔈 Deeper voice</span><span>Higher voice 🔊</span></div><input type="range" min="0.6" max="1.6" step="0.05" value="${f.pitch}" data-fbpitch="1" aria-label="Voice pitch"></div>
+        <button type="button" class="btn ghost" data-act="fb-hear">▶ Hear ${esc(f.name || 'it')}</button>`;
+    } else {
+      const st = S.stations.find((x) => x.id === f.station);
+      body = `<div class="card fsummary">
+          <div class="frow2"><span>Job</span><b>${esc(f.role || 'Assistant')}</b></div>
+          <div class="frow2"><span>Station</span><b>${esc(st?.name || f.station)}</b></div>
+          <div class="frow2"><span>Brain</span><b>${esc(f.model ? shortModel(f.model) : 'Station default')}${f.model && isChatOnly(f.model) ? ' · 💬' : ' · 🛠'}</b></div>
+          ${TRAITS.map(([k, lo, hi]) => `<div class="frow2"><span>${lo} ↔ ${hi}</span><span class="tbar"><i style="width:${f.traits[k]}%"></i></span></div>`).join('')}
+        </div>
+        <p class="muted tiny">${esc(forgeInstructions(f))}</p>
+        <button type="button" class="btn big" data-act="fb-build">${f.editId ? '💾 Save changes' : `🚀 Build ${esc(f.name || 'agent')}`}</button>`;
+    }
+    const nav = `<div class="row fnav">${f.step ? '<button type="button" class="btn ghost" data-act="fb-prev">‹ Back</button>' : ''}${f.step < FORGE_STEPS.length - 1 ? '<button type="button" class="btn" data-act="fb-next">Next ›</button>' : ''}</div>`;
+    return `<form data-form="forge" class="forge" onsubmit="return false"><h3>🛠️ ${f.editId ? 'Customize' : 'Agent Builder'}</h3>
+      <div id="forgePreview">${forgePreview(f)}</div>${steps}<div class="fbody">${body}</div>${nav}
+      ${ui.forgeBuilding ? `<div class="assembling"><div class="parts">${forgeAvatar(f.look, 'xl')}</div><p>⚙️ Assembling ${esc(f.name)}…</p></div>` : ''}</form>`;
+  }
+
+  async function forgeBuild() {
+    const f = ui.forge; if (!f) return;
+    if (!f.name.trim()) { f.step = 1; renderSheet(); return toast('Give your agent a name', 'bad'); }
+    ui.forgeBuilding = true; renderSheet();
+    await new Promise((r) => setTimeout(r, 1300)); // let the assembly animation play
+    const body = { name: f.name.trim(), role: f.role.trim() || 'Assistant', station: f.station, instructions: forgeInstructions(f), look: CH.cleanLook(f.look), traits: f.traits, pitch: f.pitch, model: f.model };
+    const a = await act(() => (f.editId ? call('PATCH', `agents/${encodeURIComponent(f.editId)}`, body) : call('POST', 'agents', body)), f.editId ? 'Changes saved 🎨' : `${f.name} is ready for work 🚀`);
+    ui.forgeBuilding = false;
+    if (!a) return renderSheet();
+    ui.forge = null; closeSheet();
+    ui.flashAgent = a.id || f.editId; setTimeout(() => { ui.flashAgent = null; regionCache.clear(); update(); }, 4000);
+    if (ui.tab !== 'station') go('station'); else { regionCache.clear(); update(); }
+    setTimeout(() => { const el = document.querySelector(`#floor [data-id="${CSS.escape(ui.flashAgent || '')}"]`); el?.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, 250);
+  }
+
+  // live updates while typing / sliding, without re-rendering the whole sheet
+  function forgeLive() {
+    const f = ui.forge; if (!f) return;
+    const p = $('#forgePreview'); if (p) p.innerHTML = forgePreview(f);
+    const t = $('#forgePersona'); if (t) t.textContent = personalityText(f.traits, f.name);
+  }
+
   /* ------------------------------------------------- brains (on phone) */
   let wakeLock = null;
   async function keepAwake(on) {
@@ -1177,7 +1297,7 @@
     const tags = [...new Set(CH.CHARACTERS.map((c) => c.tag))];
     return `<h3>✨ Character gallery</h3>
       <p class="muted">Original characters you can add as agents. Free to use: the characters and avatars are CC0, and their studio voices are Apache-2.0.</p>
-      <button class="card gcard custom" data-act="custom-agent"><span class="emo">✏️</span><div class="grow"><b>Create your own</b><p class="muted tiny">Pick a look, name and job yourself</p></div><span class="muted">›</span></button>
+      <button class="card gcard custom builder-cta" data-act="forge"><span class="emo">🛠️</span><div class="grow"><b>Build your own agent</b><p class="muted tiny">Design its look, name, job, personality, brain and voice</p></div><span class="muted">›</span></button>
       ${tags.map((t) => `<h2>${esc(t)}</h2><div class="ggrid">${CH.CHARACTERS.filter((c) => c.tag === t).map((c) => `
         <button class="card gcard" data-act="character" data-id="${c.id}">${charAvatar(c, 'lg')}<b>${esc(c.name)}</b><span class="muted tiny">${esc(c.role)}</span>
         ${S.agents.some((a) => a.avatar === c.id) ? '<span class="mbadge free">ON STATION</span>' : ''}</button>`).join('')}</div>`).join('')}
@@ -1431,6 +1551,17 @@
     'add-step': () => { syncBuilder(); ui.builder.steps.push({ name: '', agent: S.agents[0]?.id, instructions: '' }); renderSheet(); },
     'rm-step': (i) => { syncBuilder(); ui.builder.steps.splice(+i, 1); renderSheet(); },
     'new-agent': () => openSheet('gallery'),
+    forge: (id) => openForge(id),
+    'fb-step': (i) => { ui.forge.step = +i; renderSheet(); $('.sheet-panel').scrollTop = 0; },
+    'fb-next': () => { ui.forge.step = Math.min(FORGE_STEPS.length - 1, ui.forge.step + 1); renderSheet(); $('.sheet-panel').scrollTop = 0; },
+    'fb-prev': () => { ui.forge.step = Math.max(0, ui.forge.step - 1); renderSheet(); $('.sheet-panel').scrollTop = 0; },
+    'fb-pick': (v) => { const [k, val] = v.split(':'); ui.forge.look[k] = val; renderSheet(); },
+    'fb-random': () => { ui.forge.look = randomLook(); renderSheet(); },
+    'fb-name': () => { ui.forge.name = rnd(NAME_IDEAS); renderSheet(); },
+    'fb-role': (i) => { const r = ROLE_IDEAS[+i]; Object.assign(ui.forge, { role: r.role, base: r.base, station: S.stations.some((s) => s.id === r.station) ? r.station : ui.forge.station }); renderSheet(); },
+    'fb-station': (id) => { ui.forge.station = id; renderSheet(); },
+    'fb-hear': () => { const f = ui.forge; speakDevice(`Hi! I'm ${f.name || 'your new agent'}${f.role ? `, your ${f.role.toLowerCase()}` : ''}. Ready when you are.`, ++vc.speakId, f.pitch); },
+    'fb-build': () => forgeBuild(),
     brain: () => { if (isPhone()) return openSheet('brain'); closeSheet(); ui.brain = 'connect'; go('brain'); },
     'download-model': (id) => {
       ui.loadingModel = id;
@@ -1466,7 +1597,7 @@
       speakCloned(`Hi, I'm ${v.name}. I could be the voice of one of your agents.`, `studio:${id}`, ++vc.speakId).catch((e) => toast(e.message, 'bad'));
     },
     'pick-look': (id) => { const f = $('#sheetBody form[data-form=agent]'); if (!f) return; f.avatar.value = id; $$('.look', f).forEach((b) => b.classList.toggle('active', b.dataset.id === id)); },
-    'custom-agent': () => openSheet('form', null, `<form data-form="agent"><h3>✏️ Create your own agent</h3><p class="muted">Pick a look, give it a name and a job, and a few sentences on how to work.</p>
+    'custom-agent-form': () => openSheet('form', null, `<form data-form="agent"><h3>✏️ Create your own agent</h3><p class="muted">Pick a look, give it a name and a job, and a few sentences on how to work.</p>
       <input type="hidden" name="avatar" value="">
       <div class="looks">${[['', null], ...CH.CHARACTERS.map((c) => [c.id, c])].map(([id, c]) => `<button type="button" class="look ${id ? '' : 'active'}" data-act="pick-look" data-id="${id}" aria-label="${c ? esc(c.name) + ' look' : 'Letter tile'}">${c ? charAvatar(c, 'sm') : '<span class="avatar sm" style="background:#38e8ff">A</span>'}</button>`).join('')}</div>
       <div class="chips" style="margin-bottom:12px">${ROLE_PRESETS.map((p, i) => `<button type="button" class="chip" data-act="preset" data-id="${i}">${esc(p.role)}</button>`).join('')}</div>
@@ -1677,6 +1808,11 @@
     FORMS[f.dataset.form]?.(f);
   });
   document.addEventListener('change', (e) => {
+    if (ui.forge && e.target.closest?.('form[data-form=forge]')) {
+      if (e.target.dataset.fbsel) ui.forge[e.target.dataset.fbsel] = e.target.value;
+      if (e.target.dataset.fbcheck) { ui.forge.look[e.target.dataset.fbcheck] = e.target.checked; renderSheet(); }
+      return;
+    }
     const k = e.target.dataset?.change;
     if (k === 'default-model') act(() => call('PATCH', 'settings', { defaultModel: e.target.value }), 'Default model updated');
     if (k === 'voice-agent') { vc.agent = e.target.value; vc.turns = []; renderSheet(); }
@@ -1689,6 +1825,15 @@
     if (k === 'agent-model') act(() => call('PATCH', `agents/${encodeURIComponent(e.target.dataset.id)}`, { model: e.target.value }), 'Model updated');
   });
   document.addEventListener('input', (e) => {
+    const t = e.target, f = ui.forge;
+    if (f && t.closest?.('form[data-form=forge]')) {
+      if (t.dataset.fb) f[t.dataset.fb] = t.value;
+      if (t.dataset.fbtrait) f.traits[t.dataset.fbtrait] = +t.value;
+      if (t.dataset.fbpitch) f.pitch = +t.value;
+      if (t.dataset.fbcheck) { f.look[t.dataset.fbcheck] = t.checked; renderSheet(); }
+      if (t.dataset.fbsel) f[t.dataset.fbsel] = t.value;
+      forgeLive();
+    }
     if (e.target.id === 'draft') { ui.draft = e.target.value; store.set('draft', ui.draft); $('#coach').innerHTML = coachHtml(ui.draft); }
   });
   document.addEventListener('keydown', (e) => {

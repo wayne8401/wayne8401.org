@@ -43,6 +43,16 @@ Tap **🎙️** at the top of the app (or **Talk** on an agent) and just speak. 
 
 It's free. Speech is recognized by your phone (Safari, Chrome, Edge) and spoken with its built-in voices. For browsers without speech recognition (e.g. Firefox), the server can transcribe with open-source **Whisper**: set `WHISPER_URL` to your own Whisper server (e.g. [Speaches](https://github.com/speaches-ai/speaches), free and private), or set `GROQ_API_KEY` to use Groq's free Whisper tier.
 
+### Free voice cloner
+Agents can also speak in a **cloned voice**, such as your own, using [Chatterbox](https://github.com/resemble-ai/chatterbox) (open-source, MIT). It runs on your computer and needs about 20 seconds of speech. Start it next to the station (setup in `server/voice-clone/README.md`):
+
+```bash
+cd agent-station/server/voice-clone && pip install -r requirements.txt && python clone_server.py
+```
+Then **Brain → Connect → Voice → Clone a voice**, and pick the voice for an agent (tap the agent → Speaking voice). A GPU or Apple Silicon is fast; CPU works but takes a few seconds per sentence.
+
+**Consent safeguards:** a voice can only be created by recording live in the app while the speaker reads a consent statement (no uploading existing clips); the station stores who consented and when; every generated clip carries Chatterbox's inaudible AI watermark; and voices can be deleted at any time. Only clone your own voice or someone who agreed, and never use it to impersonate or deceive.
+
 ## What your agents can do
 - **Real work:** search the web, read pages, and save deliverables (reports, drafts, plans) as files you open in the app.
 - **Remember:** they read their memories before every task and save new facts (your preferences, decisions, results). You can view and delete these under **Brain → Memory**.
@@ -79,6 +89,7 @@ Open the address it prints. On your phone, use your computer's Wi-Fi IP, e.g. `h
 | `OPENAI_COMPAT_URL` / `OPENAI_COMPAT_KEY` | none | Any other OpenAI-compatible server |
 | `DEFAULT_MODEL` | auto | e.g. `ollama:qwen3:8b` (you can also choose in the app) |
 | `WHISPER_URL` / `WHISPER_MODEL` | none | Your OpenAI-compatible Whisper server for voice transcription (otherwise Groq if `GROQ_API_KEY` is set) |
+| `CLONE_URL` | `http://127.0.0.1:8890` | Where the voice cloner (`voice-clone/clone_server.py`) runs |
 | `SEARXNG_URL` | none | Your SearXNG instance for free web search (otherwise DuckDuckGo) |
 | `PORT` | `8787` | Port to listen on |
 | `STATION_TOKEN` | none | Require this token from the app. Set it if the server is reachable from the internet, and enter the same token in ⚙️ Settings |

@@ -327,6 +327,16 @@ input[type=range] { padding: 0; accent-color: var(--cyan); background: none; bor
 @keyframes breathe { 50% { transform: scale(1.06); } }
 @keyframes ripple { from { transform: scale(1); opacity: 1; } to { transform: scale(1.25); opacity: 0; } }
 
+/* voice cloning */
+.warn { border-color: rgba(255,184,77,.45); background: rgba(255,184,77,.07); }
+.script { font-size: 16px; line-height: 1.6; color: var(--text); }
+.clone { display: grid; gap: 10px; }
+.orb-btn.small { width: 96px; height: 96px; margin: 4px 0 0; }
+.orb-btn.small .orb-core { font-size: 30px; }
+.vrow { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); align-items: center; }
+.vrow p { margin: 2px 0 0; }
+.icon-btn:disabled { opacity: .4; }
+
 @media (min-width: 720px) {
   body { max-width: 560px; margin: 0 auto; }
   .tabs { max-width: 536px; margin: 0 auto; }

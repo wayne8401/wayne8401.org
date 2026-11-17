@@ -274,7 +274,7 @@
       const files = Object.entries(d.files).map(([name, f]) => ({ name, size: f.content.length, updatedAt: f.updatedAt })).sort((a, b) => b.updatedAt - a.updatedAt);
       return {
         mode: 'demo', model: d.defaultModel, defaultModel: d.defaultModel,
-        models: DEMO_MODELS, providers: DEMO_PROVIDERS, connectors: d.connectors, plugins: d.plugins,
+        models: DEMO_MODELS, providers: DEMO_PROVIDERS, connectors: d.connectors, plugins: d.plugins, voices: [], clone: { available: false },
         stations: d.stations,
         agents: d.agents.map((a) => {
           const running = d.tasks.find((t) => t.agent === a.id && t.status === 'running');
@@ -337,7 +337,7 @@
   }
 
   /* ============================================================== state */
-  const EMPTY = { stations: [], agents: [], workflows: [], tasks: [], skills: [], memories: [], events: [], files: [], models: [], providers: [], connectors: [], plugins: [], mode: 'demo' };
+  const EMPTY = { stations: [], agents: [], workflows: [], tasks: [], skills: [], memories: [], events: [], files: [], models: [], providers: [], connectors: [], plugins: [], voices: [], clone: {}, mode: 'demo' };
   let S = { ...EMPTY };
   let lastOk = 0, lastErr = '', timer = null;
   const ui = {
@@ -623,6 +623,7 @@
     { id: 'free-models', icon: '🆓', title: 'Free & open-source AI models', time: '3 min', body: md('Agents don\'t have to use a paid model. Each agent can run on a different "brain":\n\n- **Ollama: 100% free and private.** Runs open models (Qwen, Llama, Mistral, Gemma, DeepSeek…) on your own computer. Install from **ollama.com**, then run `ollama pull qwen3:8b`. The station finds it automatically.\n- **OpenRouter: free hosted models.** Make a free key at openrouter.ai; models ending in **:free** cost nothing (with rate limits).\n- **Groq: very fast, free tier.** Free key at console.groq.com.\n- **LM Studio / vLLM / llama.cpp:** any OpenAI-compatible server works.\n- **Claude:** paid, but the strongest at long multi-step work.\n\n**Tips:** pick models that support **tools** (qwen3, llama3.1, mistral-small). Small local models are great for drafts and simple lookups; give hard research to bigger models. Switch on the **Step-by-step thinking** connector to help small models plan.\n\nChange models in **Brain → Connect**, or per agent by tapping it on the Station tab.') },
     { id: 'connectors', icon: '🧰', title: 'Connectors & plugins', time: '2 min', body: md('**Connectors** plug apps into your agents using **MCP**, an open standard. Switch one on in **Brain → Connect** and every agent can use its tools:\n\n- 🌐 **Web browser**: clicks around real websites\n- 🗂️ **Files**, 🕸️ **Knowledge graph**, 🕒 **Time**, 📰 **Web page reader**\n- 🐙 **GitHub** and 📒 **Notion** (need a token from your account)\n- 🔗 **Add by URL**: any remote MCP server\n\n**Plugins** are tiny built-in tools (calculator, weather, Wikipedia). Developers can add one by dropping a file into `server/plugins/`.\n\nOnly connect services you trust, and give tokens the least access they need.') },
     { id: 'voice', icon: '🎙️', title: 'Talk to your agents', time: '1 min', body: md('Tap **🎙️** at the top of any screen (or **Talk** on an agent) and just speak.\n\n- The agent works on what you said, then **reads its answer aloud** in a few short sentences. Longer details go into a file you can open.\n- **Hands-free** keeps the conversation going: after each answer it listens again. Say **"goodbye"** to stop.\n- The **🎤** button in the task box lets you dictate a prompt instead of typing.\n- Change the language, voice and speaking speed in **Brain → Connect → Voice**.\n\nIt\'s free: your phone recognizes speech and speaks with its own voices. (Firefox users: the station can transcribe with open-source Whisper instead.)') },
+    { id: 'clone', icon: '🧬', title: 'Clone a voice (free)', time: '2 min', body: md('Your agents can speak with a **cloned voice**, such as your own, so voice chat sounds like a real person.\n\n1. On the server computer, start the free cloner once: `cd server/voice-clone`, `pip install -r requirements.txt`, `python clone_server.py`. It uses **Chatterbox**, an open-source model that runs on your machine.\n2. In **Brain → Connect → Voice**, tap **Clone a voice**, confirm consent, and read the short script aloud (about 20 seconds).\n3. Tap an agent → **Speaking voice** → pick the new voice.\n\n**Rules that matter:** only clone your own voice or someone who agreed. The sample must be recorded live with a spoken consent line, and existing recordings can\'t be uploaded. Never use a cloned voice to trick or impersonate anyone; in many places that\'s illegal. Every clip has an inaudible AI watermark. Delete a voice anytime.') },
     { id: 'connect', icon: '🔌', title: 'Connect real agents', time: '5 min', body: md('Demo mode is pretend. To make your agents do real work:\n\n1. Choose a brain: install **Ollama** (free, ollama.com) and run `ollama pull qwen3:8b`, **or** get a Claude key at console.anthropic.com, **or** a free OpenRouter/Groq key.\n2. On a computer with Node.js 18+, open the `agent-station/server` folder and run:\n```\nnpm install\nnpm start\n```\n(For Claude: `ANTHROPIC_API_KEY=your-key npm start`. For OpenRouter: `OPENROUTER_API_KEY=… npm start`.)\n3. Open the address it prints (on your phone, use the computer\'s Wi-Fi IP, e.g. `http://192.168.1.20:8787`).\n4. The app connects automatically. Install it: **Share → Add to Home Screen**.\n\nRunning it somewhere public? Set `STATION_TOKEN` and enter the same token in ⚙️ Settings.') },
     { id: 'safety', icon: '🛡️', title: 'Safety & costs', time: '1 min', body: md('- **Costs:** Ollama and other free models cost nothing. Claude tasks use tokens billed to your API key. The Spend tile shows an estimate. Research tasks cost more than short writing tasks.\n- **Check facts:** agents cite sources — open the links for anything important.\n- **Privacy:** don\'t paste passwords, card numbers or other people\'s private data.\n- **Stay in charge:** agents only write files inside the station; they can\'t send emails or buy things.') },
   ];
@@ -642,6 +643,7 @@
         <div><span>Skills learned</span><b>${skills.length}</b></div>
         <div><span>Memories</span><b>${S.memories.filter((m) => m.agent === a.id).length}</b></div>
       </div>
+      ${S.voices?.length ? `<label class="field">🗣️ Speaking voice<select data-change="agent-voice" data-id="${esc(a.id)}"><option value="">Device voice</option>${S.voices.map((v) => `<option value="${esc(v.id)}" ${v.id === a.voiceId ? 'selected' : ''}>🧬 ${esc(v.name)}</option>`).join('')}</select></label>` : ''}
       <label class="field">🧠 AI model<select data-change="agent-model" data-id="${esc(a.id)}">${modelOptions(a.modelChosen, true)}</select></label>
       <div class="row"><button class="btn" data-act="task-for" data-id="${esc(a.id)}">✍️ Give a task</button><button class="btn ghost" data-act="voice-open" data-id="${esc(a.id)}">🎙️ Talk</button></div>
       ${a.instructions ? `<h2>How ${esc(a.name)} works</h2><div class="card"><p class="muted">${esc(a.instructions)}</p></div>` : ''}
@@ -712,6 +714,7 @@
     if (sh.kind === 'skill') { const s = S.skills.find((x) => x.id === sh.id); if (!s) return closeSheet(); html = skillSheet(s); }
     if (sh.kind === 'builder') html = builderSheet();
     if (sh.kind === 'voice') html = voiceSheet();
+    if (sh.kind === 'clone') html = cloneSheet();
     if (sh.kind === 'events') html = `<h3>All activity</h3><div class="feed" style="margin-top:12px">${eventsHtml(S.events)}</div>`;
     if (sh._last !== html) {
       $('#sheetBody').innerHTML = html; sh._last = html;
@@ -724,7 +727,7 @@
     $('.sheet-panel').scrollTop = 0;
     renderSheet();
   }
-  function closeSheet() { if (ui.sheet?.kind === 'voice') endVoice(); ui.sheet = null; $('#sheet').hidden = true; $('#sheetBody').innerHTML = ''; }
+  function closeSheet() { if (ui.sheet?.kind === 'voice') endVoice(); if (ui.sheet?.kind === 'clone' && cl.recording) cl.rec?.stop(); ui.sheet = null; $('#sheet').hidden = true; $('#sheetBody').innerHTML = ''; }
 
   /* ============================================================ render */
   const regionCache = new Map();
@@ -804,15 +807,65 @@
     return t;
   }
 
-  function speak(text) {
-    if (!canTTS || !text) return Promise.resolve();
-    speechSynthesis.cancel();
-    const id = ++vc.speakId;
-    // Speak sentence by sentence: some browsers cut off long utterances.
+  // One shared audio element, unlocked on the user's first tap (iOS blocks audio started later otherwise).
+  const player = new Audio();
+  let audioUnlocked = false;
+  function unlockAudio() {
+    if (audioUnlocked) return;
+    audioUnlocked = true;
+    player.src = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YQAAAAA=';
+    player.play().catch(() => {});
+  }
+  const cloneReady = () => isServer() && !!S.clone?.available;
+  const voiceOf = (agentId) => { const v = agentById(agentId)?.voiceId; return v && S.voices?.some((x) => x.id === v) ? v : ''; };
+  const splitSpeech = (text, max = 220) => {
     const parts = text.match(/[^.!?]+[.!?]*\s*/g) || [text];
     const chunks = []; let cur = '';
-    for (const p of parts) { if ((cur + p).length > 220 && cur) { chunks.push(cur); cur = ''; } cur += p; }
-    if (cur.trim()) chunks.push(cur);
+    for (const p of parts) { if ((cur + p).length > max && cur) { chunks.push(cur.trim()); cur = ''; } cur += p; }
+    if (cur.trim()) chunks.push(cur.trim());
+    return chunks;
+  };
+
+  async function speakCloned(text, voiceId, id) {
+    // Generate sentence by sentence and start playing the first one while the next is made.
+    const fetchClip = (chunk) => {
+      const headers = { 'Content-Type': 'application/json' };
+      if (cfg.token) headers.Authorization = 'Bearer ' + cfg.token;
+      return fetch(apiUrl('speak'), { method: 'POST', headers, body: JSON.stringify({ text: chunk, voice: voiceId, language: voiceCfg.lang.slice(0, 2) }) })
+        .then(async (r) => { if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`); return r.blob(); });
+    };
+    const chunks = splitSpeech(text, 260);
+    let next = fetchClip(chunks[0]);
+    for (let i = 0; i < chunks.length; i++) {
+      const blob = await next;
+      if (i + 1 < chunks.length) next = fetchClip(chunks[i + 1]);
+      if (id !== vc.speakId) return;
+      const url = URL.createObjectURL(blob);
+      await new Promise((res) => { player.onended = player.onerror = res; player.src = url; player.playbackRate = +voiceCfg.rate || 1; player.play().catch(res); });
+      URL.revokeObjectURL(url);
+      if (id !== vc.speakId) return;
+    }
+  }
+
+  function speak(text, agentId) {
+    if (!text) return Promise.resolve();
+    const id = ++vc.speakId;
+    const cloned = agentId && cloneReady() ? voiceOf(agentId) : '';
+    if (cloned) {
+      if (canTTS) speechSynthesis.cancel();
+      return speakCloned(text, cloned, id).catch((e) => {
+        if (id !== vc.speakId) return;
+        toast(`Cloned voice unavailable (${e.message}). Using the device voice.`, 'bad');
+        return speakDevice(text, ++vc.speakId);
+      });
+    }
+    return speakDevice(text, id);
+  }
+
+  function speakDevice(text, id) {
+    if (!canTTS) return Promise.resolve();
+    speechSynthesis.cancel();
+    const chunks = splitSpeech(text); // sentence by sentence: some browsers cut off long utterances
     const v = speechSynthesis.getVoices().find((x) => x.name === voiceCfg.voice);
     return chunks.reduce((prev, chunk) => prev.then(() => new Promise((res) => {
       if (id !== vc.speakId) return res();
@@ -823,7 +876,7 @@
       speechSynthesis.speak(u);
     })), Promise.resolve());
   }
-  function stopSpeaking() { vc.speakId++; if (canTTS) speechSynthesis.cancel(); }
+  function stopSpeaking() { vc.speakId++; if (canTTS) speechSynthesis.cancel(); try { player.pause(); } catch { /* nothing playing */ } }
 
   function listen(onInterim) {
     if (SR) {
@@ -889,6 +942,7 @@
   function setVoice(state, extra = {}) { Object.assign(vc, { state, ...extra }); if (ui.sheet?.kind === 'voice') renderSheet(); }
 
   function openVoice(agentId) {
+    unlockAudio();
     vc.agent = agentById(agentId)?.id || vc.agent || ui.draftAgent || S.agents[0]?.id;
     vc.error = ''; vc.interim = '';
     openSheet('voice');
@@ -913,7 +967,7 @@
     if (/^(stop|goodbye|bye|end( the)? chat|that'?s all|thank you,? that'?s all)[.!]?$/i.test(text.trim())) {
       setVoice('speaking', { interim: '' });
       vc.turns.push({ who: 'agent', text: 'Okay, talk soon!' });
-      await speak('Okay, talk soon!');
+      await speak('Okay, talk soon!', vc.agent);
       return setVoice('idle');
     }
     const history = vc.turns.slice(-7, -1).map((t) => `${t.who === 'you' ? 'User' : agentName(vc.agent)}: ${t.text}`).join('\n');
@@ -935,7 +989,7 @@
     const reply = t.status === 'error' ? `Sorry, something went wrong. ${t.result || ''}` : plainSpeech(t.result);
     vc.turns.push({ who: 'agent', text: reply, task: t.id });
     setVoice('speaking');
-    await speak(reply);
+    await speak(reply, vc.agent);
     if (ui.sheet?.kind !== 'voice' || vc.state !== 'speaking') return;
     if (voiceCfg.handsFree && canListen()) voiceTurn(); else setVoice('idle');
   }
@@ -964,6 +1018,110 @@
     </div>`;
   }
 
+  /* ---------------------------------------------------------- cloning */
+  const CLONE_SCRIPT = (speaker) => `I, ${speaker || '[your name]'}, agree to let my Agent Station assistants speak with a copy of my voice. ` +
+    'The quick brown fox jumps over the lazy dog. On sunny mornings I like to walk to the market, buy fresh bread and a little coffee, and plan the day ahead. ' +
+    'Sometimes things get busy, but a calm voice and a clear plan always help.';
+  const cl = { step: 1, speaker: '', name: '', rec: null, blob: null, wav: null, url: '', secs: 0, timer: null, recording: false, saving: false };
+
+  function cloneSheet() {
+    if (cl.step === 1) return `<form data-form="clone1"><h3>🧬 Clone a voice</h3>
+      <p class="muted">Your agents can answer in a cloned voice, made free and on your own computer by the open-source Chatterbox model.</p>
+      <div class="card warn"><b>Consent comes first</b><p class="muted tiny" style="margin:6px 0 0">Only clone <b>your own voice</b>, or someone who has said yes. The speaker records the sample live and reads a consent statement; existing recordings can't be uploaded. Never use a cloned voice to deceive or impersonate anyone. Generated audio carries an inaudible AI watermark.</p></div>
+      <label class="field" style="margin-top:12px">Speaker's full name<input name="speaker" required maxlength="60" value="${esc(cl.speaker)}" placeholder="The person whose voice this is"></label>
+      <label class="field">Name for this voice<input name="name" required maxlength="40" value="${esc(cl.name)}" placeholder="e.g. My voice"></label>
+      <label class="hf"><input type="checkbox" name="mine" required> This is my voice, or the speaker is here and agrees</label>
+      <label class="hf" style="margin-top:8px"><input type="checkbox" name="fair" required> I won't use it to impersonate or deceive anyone</label>
+      <button class="btn" type="submit" style="margin-top:14px">Next: record ›</button></form>`;
+    if (cl.step === 2) return `<div class="clone"><h3>🎙️ Record ${esc(cl.speaker)}'s voice</h3>
+      <p class="muted">In a quiet room, ${esc(cl.speaker)} reads this aloud in a natural voice (about 20 seconds):</p>
+      <div class="card script">${esc(CLONE_SCRIPT(cl.speaker))}</div>
+      <button class="orb-btn small ${cl.recording ? 'listening' : ''}" data-act="clone-rec" aria-label="${cl.recording ? 'Stop recording' : 'Start recording'}"><span class="orb-core">${cl.recording ? '⏹' : '⏺'}</span></button>
+      <p class="vstate">${cl.recording ? `Recording… ${cl.secs}s (tap to stop)` : cl.wav ? `Recorded ${cl.secs}s ✓` : 'Tap to start recording'}</p>
+      ${cl.wav && !cl.recording ? `<audio controls src="${cl.url}" style="width:100%"></audio>
+        <div class="row" style="margin-top:10px"><button class="btn ghost" data-act="clone-rec">↺ Re-record</button><button class="btn" data-act="clone-save" ${cl.saving ? 'disabled' : ''}>${cl.saving ? 'Saving…' : 'Save voice'}</button></div>` : ''}
+      <p class="muted tiny center">Tip: hold the phone about 20 cm away. Avoid music and echoey rooms.</p></div>`;
+    return '';
+  }
+
+  function floatTo16BitWav(samples, rate) {
+    const buf = new ArrayBuffer(44 + samples.length * 2), v = new DataView(buf);
+    const str = (o, t) => [...t].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
+    str(0, 'RIFF'); v.setUint32(4, 36 + samples.length * 2, true); str(8, 'WAVE'); str(12, 'fmt ');
+    v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true); v.setUint32(24, rate, true);
+    v.setUint32(28, rate * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true); str(36, 'data'); v.setUint32(40, samples.length * 2, true);
+    for (let i = 0; i < samples.length; i++) v.setInt16(44 + i * 2, Math.max(-1, Math.min(1, samples[i])) * 0x7fff, true);
+    return new Blob([buf], { type: 'audio/wav' });
+  }
+
+  async function toWav(blob) {
+    // Decode whatever the browser recorded (webm/mp4) and re-encode as 24 kHz mono WAV.
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const audio = await ctx.decodeAudioData(await blob.arrayBuffer());
+    ctx.close();
+    const rate = 24000, len = Math.ceil(audio.duration * rate);
+    const off = new OfflineAudioContext(1, len, rate);
+    const src = off.createBufferSource(); src.buffer = audio; src.connect(off.destination); src.start();
+    const out = await off.startRendering();
+    return { wav: floatTo16BitWav(out.getChannelData(0), rate), secs: Math.round(audio.duration) };
+  }
+
+  async function cloneRecord() {
+    if (cl.recording) { cl.rec?.stop(); return; }
+    let stream;
+    try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: true } }); }
+    catch { return toast('Microphone access is blocked. Allow it in your browser settings.', 'bad'); }
+    const type = ['audio/webm', 'audio/mp4', 'audio/ogg'].find((t) => MediaRecorder.isTypeSupported?.(t)) || '';
+    const rec = new MediaRecorder(stream, type ? { mimeType: type } : undefined);
+    const chunks = [];
+    rec.ondataavailable = (e) => e.data.size && chunks.push(e.data);
+    rec.onstop = async () => {
+      clearInterval(cl.timer); stream.getTracks().forEach((t) => t.stop());
+      cl.recording = false;
+      try {
+        const { wav, secs } = await toWav(new Blob(chunks, { type: rec.mimeType }));
+        if (cl.url) URL.revokeObjectURL(cl.url);
+        Object.assign(cl, { wav, secs, url: URL.createObjectURL(wav) });
+        if (secs < 10) toast('That was short. Read the whole script for the best clone.', 'bad');
+      } catch (e) { toast(`Couldn't process the recording: ${e.message}`, 'bad'); }
+      renderSheet();
+    };
+    Object.assign(cl, { rec, recording: true, secs: 0, wav: null });
+    cl.timer = setInterval(() => { cl.secs++; if (cl.secs >= 60) rec.stop(); renderSheet(); }, 1000);
+    rec.start();
+    renderSheet();
+  }
+
+  async function cloneSave() {
+    if (!cl.wav) return;
+    cl.saving = true; renderSheet();
+    try {
+      const q = new URLSearchParams({ speaker: cl.speaker, name: cl.name, consent: 'yes', statement: CLONE_SCRIPT(cl.speaker).split('. ')[0] + '.' });
+      const headers = { 'Content-Type': 'audio/wav' };
+      if (cfg.token) headers.Authorization = 'Bearer ' + cfg.token;
+      const r = await fetch(apiUrl('voices?' + q), { method: 'POST', headers, body: cl.wav });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+      toast(`Voice “${j.name}” saved 🧬 Pick it for an agent`);
+      Object.assign(cl, { step: 1, wav: null, saving: false });
+      closeSheet(); await refresh();
+    } catch (e) { cl.saving = false; renderSheet(); toast(e.message, 'bad'); }
+  }
+
+  function cloneCardHtml() {
+    const voices = S.voices || [];
+    const ready = cloneReady();
+    return `<div class="card" style="margin-top:10px">
+      <div class="wf-head"><span class="emo">🧬</span><div class="grow"><b>Voice cloner</b> <span class="mbadge free">FREE · OPEN SOURCE</span><p class="muted tiny">Give agents a real voice: yours, or someone who agreed. Runs on your computer with Chatterbox.</p></div></div>
+      <p class="muted tiny" style="margin:8px 0">${ready ? `✅ Cloner running on ${esc(S.clone.device || 'your computer')}${S.clone.device === 'cpu' ? ' (CPU: replies take a few seconds per sentence)' : ''}` : S.mode === 'demo' ? '⚪ Needs your station server. Voice cloning doesn\'t run in demo mode.' : '⚪ Cloner not running. On the server computer: <code>cd server/voice-clone</code>, <code>pip install -r requirements.txt</code>, <code>python clone_server.py</code>'}</p>
+      ${voices.map((v) => `<div class="mem vrow"><span class="emo">🗣️</span><div class="grow"><b>${esc(v.name)}</b><p class="muted tiny">Speaker: ${esc(v.speaker)} · ${v.seconds}s sample · ${ago(v.createdAt)} · used by ${S.agents.filter((a) => a.voiceId === v.id).map((a) => esc(a.name)).join(', ') || 'no agent yet'}</p></div>
+        <button class="icon-btn" data-act="clone-preview" data-id="${esc(v.id)}" aria-label="Preview" ${ready ? '' : 'disabled'}>▶</button>
+        <button class="icon-btn" data-act="clone-del" data-id="${esc(v.id)}" aria-label="Delete voice">✕</button></div>`).join('')}
+      <button class="btn ${voices.length ? 'ghost' : ''}" data-act="clone-start" ${isServer() ? '' : 'disabled'} style="margin-top:8px">+ Clone a voice</button>
+      ${voices.length ? '<p class="muted tiny" style="margin:8px 0 0">Choose who speaks with which voice: tap an agent on the Station tab → Speaking voice.</p>' : ''}
+    </div>`;
+  }
+
   function voiceSettingsHtml() {
     const voices = canTTS ? speechSynthesis.getVoices() : [];
     const sttLine = SR ? '✅ On-device speech recognition (free)' : canServerSTT() ? `✅ Station transcription: ${esc(S.voice?.sttProvider)}` : isServer() ? '⚪ No speech recognition in this browser. Use Safari/Chrome, or set WHISPER_URL / GROQ_API_KEY on the server' : '⚪ No speech recognition in this browser. Try Safari or Chrome';
@@ -975,7 +1133,7 @@
       <label class="field">Speaking speed: <b>${(+voiceCfg.rate).toFixed(1)}×</b><input type="range" min="0.6" max="1.6" step="0.1" value="${esc(voiceCfg.rate)}" data-change="voice-rate"></label>
       <label class="hf"><input type="checkbox" data-change="read-results" ${voiceCfg.readResults ? 'checked' : ''}> Read every finished task aloud</label>
       <button class="btn ghost" data-act="voice-test" style="margin-top:10px">🔊 Test voice</button>` : ''}
-    </div>`;
+    </div>${cloneCardHtml()}`;
   }
 
   async function dictate() {
@@ -1002,7 +1160,7 @@
       if (!spokenTasks.has(t.id)) {
         const fresh = t.finishedAt && now() - t.finishedAt < 15000;
         spokenTasks.add(t.id);
-        if (voiceCfg.readResults && fresh && !t.voice && ui.sheet?.kind !== 'voice') speak(`${agentName(t.agent)} finished. ${plainSpeech(t.result)}`);
+        if (voiceCfg.readResults && fresh && !t.voice && ui.sheet?.kind !== 'voice') speak(`${agentName(t.agent)} finished. ${plainSpeech(t.result)}`, t.agent);
       }
     }
   }
@@ -1082,9 +1240,20 @@
     preset: (i) => { const p = ROLE_PRESETS[+i], f = $('#sheetBody form'); f.role.value = p.role; f.instructions.value = p.instructions; if (!f.name.value) f.name.focus(); },
     'voice-open': (id) => { if (ui.sheet && ui.sheet.kind !== 'voice') closeSheet(); openVoice(id); },
     'voice-mic': () => voiceTurn(),
+    'clone-start': () => { if (!cloneReady()) toast('Start the voice cloner on your server first. You can still record now.', 'bad'); Object.assign(cl, { step: 1, wav: null }); openSheet('clone'); },
+    'clone-rec': () => cloneRecord(),
+    'clone-save': () => cloneSave(),
+    'clone-preview': (id) => {
+      unlockAudio();
+      const v = S.voices.find((x) => x.id === id); if (!v) return;
+      const id2 = ++vc.speakId;
+      toast('Generating a preview…');
+      speakCloned(`Hi, this is the ${v.name} voice. This is how your agents will sound.`, id, id2).catch((e) => toast(e.message, 'bad'));
+    },
+    'clone-del': (id) => { const v = S.voices.find((x) => x.id === id); if (v && confirm(`Delete the “${v.name}” voice and its recording?`)) act(() => call('DELETE', 'voices/' + encodeURIComponent(id)), 'Voice deleted'); },
     'voice-hush': () => { stopSpeaking(); setVoice('idle'); },
     'voice-clear': () => { endVoice(); vc.turns = []; renderSheet(); },
-    'voice-test': () => speak(`Hi! I'm ${agentName(ui.draftAgent)}. This is how I'll sound when I answer you.`),
+    'voice-test': () => speakDevice(`Hi! I'm ${agentName(ui.draftAgent)}. This is how I'll sound when I answer you.`, ++vc.speakId),
     dictate: () => dictate(),
     'refresh-models': () => act(() => call('POST', 'models/refresh'), 'Models refreshed'),
     'conn-enable': (id) => {
@@ -1158,6 +1327,11 @@
     async memory(f) {
       const ok = await act(() => call('POST', 'memories', { fact: f.fact.value.trim(), agent: f.agent.value || null }), 'Remembered 🧠');
       if (ok) closeSheet();
+    },
+    clone1(f) {
+      cl.speaker = f.speaker.value.trim(); cl.name = f.name.value.trim();
+      if (!cl.speaker || !cl.name || !f.mine.checked || !f.fair.checked) return toast('Fill in both names and confirm consent', 'bad');
+      cl.step = 2; renderSheet();
     },
     async conn(f) {
       const id = f.dataset.id, secrets = {};
@@ -1261,6 +1435,7 @@
     if (k === 'voice-lang') { voiceCfg.lang = e.target.value; voiceCfg.voice = ''; store.set('voice', voiceCfg); regionCache.clear(); update(); }
     if (k === 'voice-voice') { voiceCfg.voice = e.target.value; store.set('voice', voiceCfg); speak('This is my new voice.'); }
     if (k === 'voice-rate') { voiceCfg.rate = +e.target.value; store.set('voice', voiceCfg); regionCache.clear(); update(); }
+    if (k === 'agent-voice') act(() => call('PATCH', `agents/${encodeURIComponent(e.target.dataset.id)}`, { voiceId: e.target.value }), 'Speaking voice updated');
     if (k === 'agent-model') act(() => call('PATCH', `agents/${encodeURIComponent(e.target.dataset.id)}`, { model: e.target.value }), 'Model updated');
   });
   document.addEventListener('input', (e) => {

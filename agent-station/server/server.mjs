@@ -18,13 +18,14 @@ import { PROVIDERS, parseModel, priceOf, discoverModels, pickDefault, openaiChat
 import { webSearch, webFetch } from './webtools.mjs';
 import { Connectors } from './connectors.mjs';
 import { loadPlugins } from './plugins.mjs';
-import { sttConfig, transcribe } from './voice.mjs';
+import { sttConfig, transcribe, cloneStatus, checkWav, cloneSpeak } from './voice.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const APP_DIR = path.resolve(HERE, '..');
 const DATA_DIR = path.resolve(process.env.DATA_DIR || path.join(HERE, 'data'));
 const FILES_DIR = path.join(DATA_DIR, 'files');
 const STATE_FILE = path.join(DATA_DIR, 'state.json');
+const VOICES_DIR = path.join(DATA_DIR, 'voices');
 
 const PORT = +process.env.PORT || 8787;
 const HOST = process.env.HOST || '0.0.0.0';
@@ -87,6 +88,7 @@ const DEFAULT_STATE = () => ({
   events: [],
   usage: {},
   settings: { defaultModel: '', plugins: {} },
+  voices: [],
 });
 
 let state = DEFAULT_STATE();
@@ -94,6 +96,7 @@ const live = {}; // per-agent runtime: { status, task, progress, taskId }
 
 async function loadState() {
   await fs.mkdir(FILES_DIR, { recursive: true });
+  await fs.mkdir(VOICES_DIR, { recursive: true });
   try {
     const saved = JSON.parse(await fs.readFile(STATE_FILE, 'utf8'));
     state = { ...DEFAULT_STATE(), ...saved };
@@ -518,13 +521,15 @@ async function improvePrompt(text, agentId) {
 
 /* ------------------------------------------------------------ status view */
 
-function statusView(files) {
+function statusView(files, clone = {}) {
   const runFor = (wf) => state.runs.find((r) => r.workflow === wf.id);
   return {
     mode: 'live', model: defaultModel(), defaultModel: defaultModel(), serverTime: now(),
     models: models.models, providers: Object.entries(PROVIDERS).map(([id, p]) => ({ id, label: p.label, free: p.free, setup: p.setup, ...(models.providers[id] || { ready: false, note: '' }) })),
     connectors: connectors?.view() || [],
     voice: { stt: !!sttConfig(), sttProvider: sttConfig()?.provider || '' },
+    clone: { available: !!clone.ok, device: clone.device || '', multilingual: !!clone.multilingual },
+    voices: (state.voices || []).map(({ id, name, speaker, createdAt, seconds }) => ({ id, name, speaker, createdAt, seconds })),
     plugins: plugins.map((p) => ({ name: p.name, label: p.label, icon: p.icon, description: p.description, enabled: pluginOn(p) })),
     stations: state.stations,
     agents: state.agents.map((a) => {
@@ -532,7 +537,7 @@ function statusView(files) {
       const u = state.usage[a.id] || { tokens: 0, cost: 0 };
       const queued = state.tasks.filter((t) => t.agent === a.id && t.status === 'queued').length;
       return {
-        id: a.id, name: a.name, role: a.role, station: a.station, instructions: a.instructions, model: agentModel(a), modelChosen: a.model || '',
+        id: a.id, name: a.name, role: a.role, station: a.station, instructions: a.instructions, model: agentModel(a), modelChosen: a.model || '', voiceId: a.voiceId || '',
         status: l.status === 'running' ? 'running' : l.status === 'error' ? 'error' : queued ? 'waiting' : 'idle',
         task: l.status === 'running' ? l.task : l.status === 'error' ? l.task : queued ? `${queued} task(s) queued` : 'Ready for a task',
         progress: l.progress || 0, tokens: u.tokens, cost: +u.cost.toFixed(4),
@@ -573,7 +578,7 @@ function send(res, status, data, headers = {}) {
 const STATIC = { 'index.html': 'text/html', 'app.js': 'text/javascript', 'styles.css': 'text/css', 'sw.js': 'text/javascript', 'manifest.webmanifest': 'application/manifest+json', 'icon.svg': 'image/svg+xml' };
 
 const routes = [
-  ['GET', /^\/api\/status$/, async () => statusView(await listFiles())],
+  ['GET', /^\/api\/status$/, async () => statusView(await listFiles(), await cloneStatus())],
   ['POST', /^\/api\/tasks$/, async (_, b) => createTask(b.agent, b.prompt, {
     ...(b.voice ? { voice: true } : {}),
     ...(b.title ? { title: String(b.title).slice(0, 120) } : {}),
@@ -602,6 +607,7 @@ const routes = [
   ['PATCH', /^\/api\/agents\/([\w-]+)$/, async ([id], b) => {
     const a = agentById(id); if (!a) throw httpError(404, 'No such agent');
     if ('model' in b) { a.model = String(b.model || ''); event('info', a.id, `${a.name} now uses ${agentModel(a)}`); }
+    if ('voiceId' in b) { a.voiceId = state.voices.some((v) => v.id === b.voiceId) ? b.voiceId : ''; event('info', a.id, a.voiceId ? `${a.name} now speaks with the “${state.voices.find((v) => v.id === a.voiceId).name}” voice` : `${a.name} uses the device voice`); }
     for (const k of ['name', 'role', 'instructions']) if (typeof b[k] === 'string' && b[k].trim()) a[k] = b[k].slice(0, k === 'instructions' ? 4000 : 60);
     save(); return a;
   }],
@@ -618,6 +624,17 @@ const routes = [
   ['POST', /^\/api\/plugins\/([\w-]+)$/, async ([name], b) => {
     if (!plugins.some((p) => p.name === name)) throw httpError(404, 'No such plugin');
     state.settings.plugins[name] = !!b.enabled; save(); return { ok: true };
+  }],
+  ['DELETE', /^\/api\/voices\/([\w-]+)$/, async ([id]) => {
+    const v = state.voices.find((x) => x.id === id); if (!v) throw httpError(404, 'No such voice');
+    await fs.rm(path.join(VOICES_DIR, `${id}.wav`), { force: true });
+    state.voices = state.voices.filter((x) => x.id !== id);
+    for (const a of state.agents) if (a.voiceId === id) a.voiceId = '';
+    event('info', null, `Deleted cloned voice “${v.name}” and its recording`); save(); return { ok: true };
+  }],
+  ['POST', /^\/api\/speak$/, async (_, b) => {
+    const v = state.voices.find((x) => x.id === b.voice); if (!v) throw httpError(404, 'No such voice');
+    return { __binary: await cloneSpeak(b.text, v.id, String(b.language || 'en').slice(0, 2)), type: 'audio/wav' };
   }],
   ['POST', /^\/api\/skills$/, async (_, b) => {
     const id = slug(b.name); if (!id || !b.instructions) throw httpError(400, 'Skill needs a name and instructions');
@@ -647,6 +664,21 @@ const server = http.createServer(async (req, res) => {
         if (!fss.existsSync(full)) return send(res, 404, { error: 'No such file' }, cors);
         return send(res, 200, await fs.readFile(full), { ...cors, 'Content-Disposition': `inline; filename="${base}"` });
       }
+      if (url.pathname === '/api/voices' && req.method === 'POST') {
+        // A cloned voice can only come from a live in-app recording of the speaker reading a consent statement.
+        const q = url.searchParams;
+        const speaker = String(q.get('speaker') || '').trim().slice(0, 60), name = String(q.get('name') || '').trim().slice(0, 40);
+        if (q.get('consent') !== 'yes' || !speaker || !name) return send(res, 400, { error: 'Speaker name, voice name and consent are required' }, cors);
+        const chunks = []; let size = 0;
+        for await (const c of req) { size += c.length; if (size > 20e6) return send(res, 413, { error: 'Recording too large' }, cors); chunks.push(c); }
+        const buf = Buffer.concat(chunks);
+        const seconds = checkWav(buf);
+        const id = uid('voice').replace('_', '-');
+        await fs.writeFile(path.join(VOICES_DIR, `${id}.wav`), buf, { mode: 0o600 });
+        const v = { id, name, speaker, seconds: +seconds.toFixed(1), createdAt: now(), consent: { statement: String(q.get('statement') || '').slice(0, 400), at: now(), method: 'live in-app recording' } };
+        state.voices.push(v); event('success', null, `New cloned voice “${name}” (speaker: ${speaker}, consent recorded)`); save();
+        return send(res, 200, { id, name, speaker, seconds: v.seconds, createdAt: v.createdAt }, cors);
+      }
       if (url.pathname === '/api/transcribe' && req.method === 'POST') {
         const chunks = []; let size = 0;
         for await (const c of req) { size += c.length; if (size > 25e6) return send(res, 413, { error: 'Recording too long' }, cors); chunks.push(c); }
@@ -654,7 +686,11 @@ const server = http.createServer(async (req, res) => {
       }
       for (const [method, re, fn] of routes) {
         const m = url.pathname.match(re);
-        if (m && req.method === method) return send(res, 200, await fn(m.slice(1), method === 'GET' ? {} : await readJson(req)), cors);
+        if (m && req.method === method) {
+          const out = await fn(m.slice(1), method === 'GET' ? {} : await readJson(req));
+          if (out?.__binary) return send(res, 200, out.__binary, { ...cors, 'Content-Type': out.type });
+          return send(res, 200, out, cors);
+        }
       }
       return send(res, 404, { error: 'Not found' }, cors);
     }
@@ -673,6 +709,7 @@ const server = http.createServer(async (req, res) => {
 
 await loadState();
 state.settings = { defaultModel: '', plugins: {}, ...(state.settings || {}) };
+state.voices ||= [];
 plugins = await loadPlugins([path.join(HERE, 'plugins'), path.join(DATA_DIR, 'plugins')], (lvl, msg) => event(lvl, null, msg));
 connectors = new Connectors({ dataDir: DATA_DIR, filesDir: FILES_DIR, onEvent: (lvl, msg) => event(lvl, null, msg) });
 await connectors.load();

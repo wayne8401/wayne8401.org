@@ -1,3 +1,5 @@
 node_modules/
 data/
 .env
+voice-clone/.venv/
+__pycache__/

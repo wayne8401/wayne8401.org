@@ -476,10 +476,11 @@
       const ICON = { research: '🔬', studio: '🎨', ops: '🗂️' };
       return S.stations.map((st) => {
         const team = S.agents.filter((a) => a.station === st.id);
+        const museDesk = S.mode === 'phone' && st === S.stations[0] && !agentById('muse') ? `<button class="desk ghostdesk" data-act="muse-open" aria-label="Connect Muse"><span class="say">Tap to connect Muse</span><span class="worker">${avatar({ id: 'muse', name: 'Muse', look: { shape: 'tall', eyes: 'dot', mouth: 'smile', top: 'none', bg: '#1f1a17', fg: '#efe4d6', accent: '#ffb7a6', cheeks: true } }, 'md')}</span><span class="tabletop"></span><span class="plate"><b>Muse</b><small>🤝 not connected</small></span></button>` : '';
         const busy = team.filter((a) => a.status === 'running').length;
         return `<div class="card wsta">
           <div class="wf-head"><b class="grow">${ICON[st.id] || '🏢'} ${esc(st.name)}</b><span class="mbadge ${busy ? 'free' : ''}">${busy ? `${busy} working` : 'quiet'}</span></div>
-          <div class="desks">${team.map((a) => desk(a)).join('') || '<p class="muted tiny">No agents at this station yet.</p>'}</div>
+          <div class="desks">${team.map((a) => desk(a)).join('') + museDesk || '<p class="muted tiny">No agents at this station yet.</p>'}</div>
         </div>`;
       }).join('') || empty('No stations yet.');
     },
@@ -633,11 +634,11 @@
     { kind: 'url', icon: '🔗', name: 'Any MCP server', blurb: 'Paste the address of any remote MCP connector.', urlLabel: 'Server URL (https://…)', tokenLabel: 'Access token (optional)', help: 'Many apps now offer an MCP server. Only connect ones you trust: agents can use every tool it offers.' },
   ];
 
-  function phoneConnectHtml() {
-    const b = S.bridge || {}, conns = S.connectors || [];
+  function museCardHtml() {
+    const b = S.bridge || {};
     const museAgent = agentById('muse');
     const pillB = b.enabled ? (b.connected ? '<span class="pill s-running">connected</span>' : '<span class="pill s-error">not connected</span>') : '<span class="pill s-idle">off</span>';
-    return `<h2>🤝 Muse</h2>
+    return `
       <div class="card musecard">
         <div class="wf-head">${avatar(museAgent || { id: 'muse', name: 'Muse', look: { shape: 'tall', eyes: 'dot', mouth: 'smile', top: 'none', bg: '#1f1a17', fg: '#efe4d6', accent: '#ffb7a6', cheeks: true } }, 'md')}<div class="grow"><b>Muse Bridge</b><p class="muted tiny">Muse joins your floor: you can give Muse tasks, Muse can give your agents tasks, and Muse's work shows at its desk.</p></div>${pillB}</div>
         ${b.enabled && b.connected ? `<p class="muted tiny" style="margin:10px 0 0">Last sync ${ago(b.lastSync)}. ${(b.reports || []).length ? 'Latest from Muse: <b>' + esc(b.reports[0].title) + '</b> (' + esc(b.reports[0].status) + ')' : 'No activity from Muse yet. Ask Muse to use the Agent Station connector.'}</p>
@@ -654,7 +655,12 @@
             <details><summary class="tiny">Bridge address (only if it's not this site)</summary><label class="field" style="margin-top:8px"><input name="url" type="url" value="${esc(b.url || '')}" placeholder="https://your-site.netlify.app/bridge"></label></details>
             <button class="btn" type="submit">Turn on Muse Bridge</button>
           </form>`}
-      </div>
+      </div>`;
+  }
+
+  function phoneConnectHtml() {
+    const b = S.bridge || {}, conns = S.connectors || [];
+    return `<h2>🤝 Muse</h2>${museCardHtml()}
       <h2>🔌 Work connectors</h2>
       <p class="muted tiny" style="margin:-4px 2px 10px">Let agents take real actions in your apps. Every connector works when the agent's brain is <b>Claude</b> (Anthropic connects for you). Other brains connect from the phone, which some apps allow and some block.</p>
       ${conns.length ? `<div class="list" style="margin-bottom:10px">${conns.map((c) => `
@@ -845,6 +851,7 @@
     if (sh.kind === 'gallery') html = gallerySheet();
     if (sh.kind === 'forge') html = forgeSheet();
     if (sh.kind === 'brain') html = brainSheet();
+    if (sh.kind === 'muse') html = `<h3>🤝 Connect Muse</h3><p class="muted">Link your Muse agent so it works with your agents here.</p>${S.mode === 'phone' ? museCardHtml() : '<p class="muted tiny">The Muse Bridge runs in the phone app (the Netlify site). Open the app from your Netlify address to connect Muse.</p>'}`;
     if (sh.kind === 'welcome') html = welcomeSheet();
     if (sh.kind === 'character') { const c = CH.byId(sh.id); if (!c) return closeSheet(); html = characterSheet(c); }
     if (sh.kind === 'events') html = `<h3>All activity</h3><div class="feed" style="margin-top:12px">${eventsHtml(S.events)}</div>`;
@@ -1299,6 +1306,7 @@
     const pct = Math.round((d.progress || 0) * 100);
     return `<div class="brain"><h3>🧠 Give your agents a brain</h3>
       <p class="muted">Agents run <b>inside this app</b>. Pick one or more brains. You can mix them per agent.</p>
+      <button class="btn ghost" data-act="muse-open" style="margin:6px 0 4px">🤝 Connect Muse</button>
 
       <h2>📱 On this phone: free, private, offline</h2>
       ${d.supported !== false ? `<p class="muted tiny" style="margin:-4px 2px 10px">Free models that run right on your phone${d.webgpu ? ' (using its graphics chip)' : ''}. Download once over Wi-Fi; after that they work without internet. Keep the app open while it downloads. Smaller = faster.</p>
@@ -1687,6 +1695,7 @@
       <label class="field">AI model<select name="model">${modelOptions('', true)}</select></label>
       <button class="btn" type="submit">Add to station</button></form>`),
     preset: (i) => { const p = ROLE_PRESETS[+i], f = $('#sheetBody form'); f.role.value = p.role; f.instructions.value = p.instructions; if (!f.name.value) f.name.focus(); },
+    'muse-open': () => { if (ui.sheet && ui.sheet.kind !== 'muse') closeSheet(); openSheet('muse'); },
     'voice-open': (id) => { if (ui.sheet && ui.sheet.kind !== 'voice') closeSheet(); openVoice(id); },
     'voice-mic': () => voiceTurn(),
     'clone-start': () => { if (!cloneReady()) toast('Start the voice cloner on your server first. You can still record now.', 'bad'); Object.assign(cl, { step: 1, wav: null }); openSheet('clone'); },

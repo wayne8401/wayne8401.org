@@ -517,3 +517,6 @@ code.sel { user-select: all; word-break: break-all; }
 @keyframes fade { from { opacity: 0; } }
 @media (max-width: 360px) { .pbays { grid-template-columns: 1fr; } .parrow { display: none; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+
+.desk.ghostdesk { border-style: dashed; border-color: rgba(255,183,166,.55); opacity: .9; }
+.desk.ghostdesk .say { background: rgba(255,183,166,.18); }

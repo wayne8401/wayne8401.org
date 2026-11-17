@@ -498,6 +498,11 @@ input[type=range] { padding: 0; accent-color: var(--cyan); background: none; bor
 .desk.flash { animation: flash 1s ease-in-out 3; border-color: var(--cyan); }
 @keyframes flash { 50% { box-shadow: 0 0 0 3px var(--cyan), 0 0 24px rgba(56,232,255,.6); } }
 
+.musecard { border-color: rgba(255,183,166,.35); background: linear-gradient(135deg, rgba(255,183,166,.06), rgba(56,232,255,.04)); }
+.steps-help { margin: 12px 0; padding-left: 20px; font-size: 13px; line-height: 1.5; color: #c8d3f5; display: grid; gap: 8px; }
+code.sel { user-select: all; word-break: break-all; }
+.emo.big { font-size: 28px; }
+
 @media (min-width: 720px) {
   body { max-width: 560px; margin: 0 auto; }
   .tabs { max-width: 536px; margin: 0 auto; }

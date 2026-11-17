@@ -367,13 +367,13 @@
   }
 
   /* ============================================================ models */
-  const PROV_NAME = { anthropic: 'Claude', ollama: 'Ollama · local', openrouter: 'OpenRouter', groq: 'Groq', custom: 'Custom' };
+  const PROV_NAME = { anthropic: 'Claude', ollama: 'Ollama · local', openrouter: 'OpenRouter', groq: 'Groq', custom: 'Custom', device: 'On this phone', openai: 'OpenAI', gemini: 'Google Gemini', xai: 'xAI Grok', mistral: 'Mistral', deepseek: 'DeepSeek', perplexity: 'Perplexity' };
   const modelInfo = (id) => S.models.find((m) => m.id === id);
   function shortModel(id) {
     if (!id) return '—';
     const m = modelInfo(id);
     const label = m?.label || id.slice(id.indexOf(':') + 1);
-    return label.replace(/\s*\((local|free|Groq|custom|on this phone)\)$/i, '');
+    return label.replace(/\s*\((local|free|Groq|custom|on this phone|OpenAI|Gemini|Grok|Mistral|DeepSeek|Perplexity)\)$/i, '');
   }
   const isChatOnly = (id) => modelInfo(id)?.tools === false;
   const isFree = (id) => (modelInfo(id)?.free ?? !String(id).startsWith('anthropic:'));
@@ -568,6 +568,7 @@
     const statusPill = (c) => `<span class="pill s-${{ connected: 'running', connecting: 'waiting', error: 'error', off: 'idle' }[c.status] || 'idle'}">${esc(c.status)}</span>`;
     return `
       <div class="intro card"><p><b>Connect</b> gives your agents brains and hands: choose <b>AI models</b> (including free, open-source ones), switch on <b>connectors</b> to apps and services, and toggle <b>plugins</b>.</p></div>
+      ${S.mode === 'phone' ? phoneConnectHtml() : ''}
       <h2>Voice</h2>
       ${voiceSettingsHtml()}
       <div class="h2row"><h2>AI models</h2><button class="link" data-act="refresh-models">↻ Refresh</button></div>
@@ -581,7 +582,7 @@
           <div class="wf-head"><span class="emo">${p.ready ? '✅' : '⚪'}</span><div class="grow"><b>${esc(p.label)}</b>${p.free ? ' <span class="mbadge free">FREE</span>' : ''}<p class="muted tiny">${esc(p.note || '')}</p></div></div>
           ${p.ready ? '' : `<p class="muted tiny setup">How to turn on: ${esc(p.setup)}</p>`}
         </div>`).join('')}</div>
-      ${S.mode === 'phone' ? `<h2>Connectors</h2><div class="card"><p class="muted tiny" style="margin:0">🔌 Connectors (GitHub, Notion, web browser…) run programs, so they need the <b>station server on a computer</b>. On the phone your agents still have memory, skills, files, workflows and the plugins below.</p></div>` : `
+      ${S.mode === 'phone' ? '' : `
       <div class="h2row"><h2>Connectors</h2><button class="link" data-act="add-remote">+ Add by URL</button></div>`}
       <p class="muted tiny" style="margin:-4px 2px 10px">Open-source MCP connectors. Switch one on and every agent can use its tools.</p>
       <div class="list" ${S.mode === 'phone' ? 'hidden' : ''}>${S.connectors.map((c) => `
@@ -610,9 +611,61 @@
       <span class="worker">${avatar(a, 'md')}<i class="lamp"></i></span>
       <span class="monitor ${a.status === 'running' ? 'on' : ''}"><i></i><i></i><i></i></span>
       <span class="tabletop"></span>
-      <span class="plate"><b>${esc(a.name)}</b><small>${a.model ? `${esc(shortModel(a.model))}${isChatOnly(a.model) ? ' · 💬' : ''}` : esc(a.role)}</small></span>
+      <span class="plate"><b>${esc(a.name)}</b><small>${a.external ? '🤝 via Muse Bridge' : a.model ? `${esc(shortModel(a.model))}${isChatOnly(a.model) ? ' · 💬' : ''}` : esc(a.role)}</small></span>
       ${a.status === 'running' ? bar(a.progress) : '<span class="bar ghost"></span>'}
     </button>`;
+  }
+
+  const PAID_FIELDS = [
+    ['openai', 'OpenAI (GPT)', 'sk-…', 'platform.openai.com → API keys.'],
+    ['gemini', 'Google Gemini', 'AIza…', 'aistudio.google.com → Get API key (has a free tier).'],
+    ['xai', 'xAI Grok', 'xai-…', 'console.x.ai → API keys.'],
+    ['mistral', 'Mistral', 'key', 'console.mistral.ai → API keys.'],
+    ['deepseek', 'DeepSeek', 'sk-…', 'platform.deepseek.com → API keys (low prices).'],
+    ['perplexity', 'Perplexity', 'pplx-…', 'perplexity.ai → Settings → API. Answers with live web search (chat only).'],
+  ];
+  const CONN_CATALOG = [
+    { kind: 'zapier', icon: '⚡', name: 'Zapier', blurb: '8,000+ apps in one connector: Gmail, Google Calendar, Sheets, Drive, Slack, Notion, CRMs…', urlLabel: 'Your Zapier MCP server URL', tokenLabel: '', help: 'On <b>mcp.zapier.com</b>, create an MCP server, add the actions you want agents to use (e.g. Gmail “Send email”, Google Calendar “Create event”), then copy its server URL.' },
+    { kind: 'google', icon: '📧', name: 'Gmail · Calendar · Drive', via: 'zapier', blurb: 'Read and send email, schedule events, find and create docs (through Zapier).', urlLabel: 'Your Zapier MCP server URL', help: 'On <b>mcp.zapier.com</b>, add Gmail, Google Calendar and Google Drive actions to your MCP server, then copy its URL.' },
+    { kind: 'notion', icon: '📒', name: 'Notion', via: 'zapier', blurb: 'Create and update pages and databases (through Zapier).', urlLabel: 'Your Zapier MCP server URL', help: 'On <b>mcp.zapier.com</b>, add Notion actions (e.g. “Create page”) to your MCP server, then copy its URL.' },
+    { kind: 'slack', icon: '💬', name: 'Slack', via: 'zapier', blurb: 'Post and read messages (through Zapier).', urlLabel: 'Your Zapier MCP server URL', help: 'On <b>mcp.zapier.com</b>, add Slack actions (e.g. “Send channel message”) to your MCP server, then copy its URL.' },
+    { kind: 'github', icon: '🐙', name: 'GitHub', blurb: 'Repos, issues and pull requests (official GitHub MCP server).', url: 'https://api.githubcopilot.com/mcp/', tokenLabel: 'GitHub personal access token', help: 'github.com → Settings → Developer settings → Personal access tokens. Give it only the repos and permissions you want agents to use.' },
+    { kind: 'url', icon: '🔗', name: 'Any MCP server', blurb: 'Paste the address of any remote MCP connector.', urlLabel: 'Server URL (https://…)', tokenLabel: 'Access token (optional)', help: 'Many apps now offer an MCP server. Only connect ones you trust: agents can use every tool it offers.' },
+  ];
+
+  function phoneConnectHtml() {
+    const b = S.bridge || {}, conns = S.connectors || [];
+    const museAgent = agentById('muse');
+    const pillB = b.enabled ? (b.connected ? '<span class="pill s-running">connected</span>' : '<span class="pill s-error">not connected</span>') : '<span class="pill s-idle">off</span>';
+    return `<h2>🤝 Muse</h2>
+      <div class="card musecard">
+        <div class="wf-head">${avatar(museAgent || { id: 'muse', name: 'Muse', look: { shape: 'tall', eyes: 'dot', mouth: 'smile', top: 'none', bg: '#1f1a17', fg: '#efe4d6', accent: '#ffb7a6', cheeks: true } }, 'md')}<div class="grow"><b>Muse Bridge</b><p class="muted tiny">Muse joins your floor: you can give Muse tasks, Muse can give your agents tasks, and Muse's work shows at its desk.</p></div>${pillB}</div>
+        ${b.enabled && b.connected ? `<p class="muted tiny" style="margin:10px 0 0">Last sync ${ago(b.lastSync)}. ${(b.reports || []).length ? 'Latest from Muse: <b>' + esc(b.reports[0].title) + '</b> (' + esc(b.reports[0].status) + ')' : 'No activity from Muse yet. Ask Muse to use the Agent Station connector.'}</p>
+          <div class="row" style="margin-top:10px"><button class="btn small" data-act="task-for" data-id="muse">✍️ Give Muse a task</button><button class="btn ghost small" data-act="bridge-off">Turn off</button></div>`
+        : `${b.error ? `<p class="tiny s-error" style="margin:10px 0 0">${esc(b.error)}</p>` : ''}
+          <ol class="steps-help">
+            <li>Tap <b>🎲 New</b> to make a token (it's copied for you).</li>
+            <li>In <b>Netlify</b> → your site → <b>Site configuration → Environment variables</b>, add <code>BRIDGE_TOKEN</code> with that token. Then <b>Deploys → Trigger deploy</b>. Muse can only reach the bridge once the site is <b>public</b>; the token keeps it locked.</li>
+            <li>In <b>Muse</b>, add a connector (MCP server):<br>URL <code class="sel">${esc(b.mcpUrl || '/bridge/mcp')}</code><br>Header <code>Authorization: Bearer &lt;your token&gt;</code></li>
+            <li>Paste the token below and tap <b>Turn on</b>.</li>
+          </ol>
+          <form data-form="bridge">
+            <label class="field">Bridge token<span class="row"><input name="token" type="password" autocomplete="off" placeholder="${b.hasToken ? '•••••• (saved)' : 'paste or make one'}"><button type="button" class="btn ghost narrow" data-act="bridge-token" aria-label="Make a token">🎲 New</button></span></label>
+            <details><summary class="tiny">Bridge address (only if it's not this site)</summary><label class="field" style="margin-top:8px"><input name="url" type="url" value="${esc(b.url || '')}" placeholder="https://your-site.netlify.app/bridge"></label></details>
+            <button class="btn" type="submit">Turn on Muse Bridge</button>
+          </form>`}
+      </div>
+      <h2>🔌 Work connectors</h2>
+      <p class="muted tiny" style="margin:-4px 2px 10px">Let agents take real actions in your apps. Every connector works when the agent's brain is <b>Claude</b> (Anthropic connects for you). Other brains connect from the phone, which some apps allow and some block.</p>
+      ${conns.length ? `<div class="list" style="margin-bottom:10px">${conns.map((c) => `
+        <div class="card conn">
+          <div class="wf-head"><span class="emo">${(CONN_CATALOG.find((x) => x.kind === c.kind) || CONN_CATALOG.at(-1)).icon}</span><div class="grow"><b>${esc(c.name)}</b><p class="muted tiny">${esc(c.host)} · ${c.browser === 'ok' ? `✅ ${c.tools.length} tools` : c.browser === 'blocked' ? '🔒 Claude brains only' : 'not tested yet'}</p></div>
+            <button class="toggle ${c.enabled ? 'on' : ''}" data-act="pconn-toggle" data-id="${esc(c.id)}" role="switch" aria-checked="${c.enabled}" aria-label="${esc(c.name)} on/off"><i></i></button></div>
+          ${c.error ? `<p class="muted tiny" style="margin:6px 0 0">${esc(c.error)}</p>` : ''}
+          ${c.tools.length ? `<p class="muted tiny" style="margin:6px 0 0">Tools: ${esc(c.tools.slice(0, 8).join(', '))}${c.tools.length > 8 ? '…' : ''}</p>` : ''}
+          <div class="row" style="margin-top:8px"><button class="btn ghost small" data-act="pconn-test" data-id="${esc(c.id)}">Test</button><button class="btn ghost small" data-act="pconn-del" data-id="${esc(c.id)}">Remove</button></div>
+        </div>`).join('')}</div>` : ''}
+      <div class="ggrid">${CONN_CATALOG.map((c) => `<button class="card gcard" data-act="pconn-add" data-id="${c.kind}"><span class="emo big">${c.icon}</span><b>${esc(c.name)}</b><span class="muted tiny">${esc(c.blurb)}</span></button>`).join('')}</div>`;
   }
 
   function greeting() {
@@ -684,6 +737,7 @@
     { id: 'connectors', icon: '🧰', title: 'Connectors & plugins', time: '2 min', body: md('**Connectors** plug apps into your agents using **MCP**, an open standard. Switch one on in **Brain → Connect** and every agent can use its tools:\n\n- 🌐 **Web browser**: clicks around real websites\n- 🗂️ **Files**, 🕸️ **Knowledge graph**, 🕒 **Time**, 📰 **Web page reader**\n- 🐙 **GitHub** and 📒 **Notion** (need a token from your account)\n- 🔗 **Add by URL**: any remote MCP server\n\n**Plugins** are tiny built-in tools (calculator, weather, Wikipedia). Developers can add one by dropping a file into `server/plugins/`.\n\nOnly connect services you trust, and give tokens the least access they need.') },
     { id: 'voice', icon: '🎙️', title: 'Talk to your agents', time: '1 min', body: md('Tap **🎙️** at the top of any screen (or **Talk** on an agent) and just speak.\n\n- The agent works on what you said, then **reads its answer aloud** in a few short sentences. Longer details go into a file you can open.\n- **Hands-free** keeps the conversation going: after each answer it listens again. Say **"goodbye"** to stop.\n- The **🎤** button in the task box lets you dictate a prompt instead of typing.\n- Change the language, voice and speaking speed in **Brain → Connect → Voice**.\n\nIt\'s free: your phone recognizes speech and speaks with its own voices. (Firefox users: the station can transcribe with open-source Whisper instead.)') },
     { id: 'characters', icon: '✨', title: 'Characters & free voices', time: '2 min', body: md('Build your own agent with **🛠️ Build** on the Station tab: design its look, name, job, personality sliders, brain and voice, then watch it get assembled at its desk. Tap **🎨 Customize** on any agent to change it later. Or tap **✨ Gallery** to add a ready-made character: **Novi** (research), **Zipp** (fact-checks), **Professor Hootley** (tutor), **Kit** (study buddy), **Confetti** (social posts), **Luma** (stories), **Pip** (budgets), **Mira** (email), **Wrenna** (tech help), **Rova** (travel), **Basil** (cooking) and **Calma** (routines).\n\n**Free to use, no copyright worries:** the characters and avatars were made for Agent Station and are released under **CC0**. Use, change and share them, even commercially.\n\n**Voices:** each character has a suggested **studio voice** from Kokoro, an open-source model licensed **Apache-2.0** (free for any use). Install it on the server computer with `pip install kokoro`, then run `python voice_server.py` in `server/voice-clone`. Without it, characters use your device voice at their own pitch.\n\nChange any agent\'s voice: tap the agent → **Speaking voice**.') },
+    { id: 'muse', icon: '🤝', title: 'Work with Muse', time: '3 min', body: md('Connect your **Muse** agent and it joins your production floor:\n\n- **You → Muse:** give Muse a task like any agent (Tasks tab, its desk, or voice). It travels to Muse; the answer comes back here.\n- **Muse → your agents:** Muse can see your station, give your agents tasks, run your workflows and get the results.\n- **Muse\'s work shows live** at its desk and in Live activity.\n\n**Set up once** (Brain → Connect → 🤝 Muse): make a token, add it in Netlify as `BRIDGE_TOKEN` and redeploy, make the site public (the token keeps the bridge locked), then add the connector in Muse with the address shown and `Authorization: Bearer <token>`.\n\nYour agents run inside this app, so **Muse\'s requests start when the app is open**.') },
     { id: 'clone', icon: '🧬', title: 'Clone a voice (free)', time: '2 min', body: md('Your agents can speak with a **cloned voice**, such as your own, so voice chat sounds like a real person.\n\n1. On the server computer, start the free cloner once: `cd server/voice-clone`, `pip install -r requirements.txt`, `python voice_server.py`. It uses **Chatterbox**, an open-source model that runs on your machine.\n2. In **Brain → Connect → Voice**, tap **Clone a voice**, confirm consent, and read the short script aloud (about 20 seconds).\n3. Tap an agent → **Speaking voice** → pick the new voice.\n\n**Rules that matter:** only clone your own voice or someone who agreed. The sample must be recorded live with a spoken consent line, and existing recordings can\'t be uploaded. Never use a cloned voice to trick or impersonate anyone; in many places that\'s illegal. Every clip has an inaudible AI watermark. Delete a voice anytime.') },
     { id: 'phone', icon: '📱', title: 'Run agents on your phone', time: '2 min', body: md('Agents run **inside this app**: no computer needed. They just need a **brain** (an AI model). Open ⚙️ → **On this phone**, then **Brain → Connect → Set up brains**:\n\n- **On this phone (free, private, offline):** download a free model once: Qwen, Llama, Gemma, SmolLM, DeepSeek or TinyLlama (0.5–2 GB, use Wi-Fi). 🛠 models use tools; 💬 models just chat. It runs on your phone\'s processor (and graphics chip when available) and uses tools natively. Small models are great for writing, planning and simple lookups.\n- **Free online:** paste a free key from **openrouter.ai** or **console.groq.com**. Bigger, smarter models; needs internet.\n- **Claude:** paste your key for the strongest agent with real web search (paid per use).\n\nYour tasks, memories, skills, files and workflows are saved on the phone. **Keep the app open** while agents work. Phones pause apps in the background, so the app keeps your screen awake during tasks.\n\nConnectors and voice cloning need a computer (see *Connect real agents*).') },
     { id: 'connect', icon: '🔌', title: 'Connect a computer (power mode)', time: '5 min', body: md('Optional: run the station server on a computer for extras the phone can\'t do: **MCP connectors**, **studio voices** and **voice cloning**, and bigger local models via Ollama.\n\n1. Choose a brain: install **Ollama** (free, ollama.com) and run `ollama pull qwen3:8b`, **or** get a Claude key at console.anthropic.com, **or** a free OpenRouter/Groq key.\n2. On a computer with Node.js 18+, open the `agent-station/server` folder and run:\n```\nnpm install\nnpm start\n```\n(For Claude: `ANTHROPIC_API_KEY=your-key npm start`. For OpenRouter: `OPENROUTER_API_KEY=… npm start`.)\n3. Open the address it prints (on your phone, use the computer\'s Wi-Fi IP, e.g. `http://192.168.1.20:8787`).\n4. The app connects automatically. Install it: **Share → Add to Home Screen**.\n\nRunning it somewhere public? Set `STATION_TOKEN` and enter the same token in ⚙️ Settings.') },
@@ -712,7 +766,7 @@
         ${a.voiceId && !studioVoice(a.voiceId) && !S.voices?.some((v) => v.id === a.voiceId) ? `<option value="${esc(a.voiceId)}" selected>${esc(a.voiceId)} (voice server offline)</option>` : ''}
       </select></label>
       ${!S.studio?.voices?.length && isServer() ? '<p class="muted tiny" style="margin:-8px 0 12px">Want natural free voices? See Brain → Connect → Voice.</p>' : ''}
-      <label class="field">🧠 AI model<select data-change="agent-model" data-id="${esc(a.id)}">${modelOptions(a.modelChosen, true)}</select></label>
+      ${a.external ? '<p class="muted tiny">🤝 Muse uses its own brain and tools. Tasks you give it travel over the Muse Bridge, and its answers come back here.</p>' : `<label class="field">🧠 AI model<select data-change="agent-model" data-id="${esc(a.id)}">${modelOptions(a.modelChosen, true)}</select></label>`}
       ${isChatOnly(a.model) ? `<p class="muted tiny" style="margin:-8px 0 12px">💬 ${esc(a.name)} is on a chat-only brain: it answers directly but can't save files or memories, or use plugins. Pick a 🛠 model for those.</p>` : ''}
       <div class="row"><button class="btn" data-act="task-for" data-id="${esc(a.id)}">✍️ Task</button><button class="btn ghost" data-act="voice-open" data-id="${esc(a.id)}">🎙️ Talk</button><button class="btn ghost" data-act="forge" data-id="${esc(a.id)}">🎨 Customize</button></div>
       ${a.instructions ? `<h2>How ${esc(a.name)} works</h2><div class="card"><p class="muted">${esc(a.instructions)}</p></div>` : ''}
@@ -1268,6 +1322,12 @@
         <p class="muted tiny" style="margin:-8px 0 12px">Free account at <b>openrouter.ai</b> → Keys. Models ending in “:free” cost nothing.</p>
         <label class="field">Groq key ${k.groq ? '<span class="mbadge free">SAVED</span>' : ''}<input name="groq" type="password" autocomplete="off" placeholder="${k.groq ? '•••••• (leave blank to keep)' : 'gsk_…'}"></label>
         <p class="muted tiny" style="margin:-8px 0 12px">Free account at <b>console.groq.com</b> → API Keys.</p>
+        <p class="tiny dgroup" style="margin-top:4px">💳 Paid brains (strongest at real work)</p>
+        ${PAID_FIELDS.map(([id, label, ph, help]) => `<label class="field">${label} key ${k[id] ? '<span class="mbadge">SAVED</span>' : ''}<input name="${id}" type="password" autocomplete="off" placeholder="${k[id] ? '•••••• (leave blank to keep)' : ph}"></label><p class="muted tiny" style="margin:-8px 0 12px">${help}</p>`).join('')}
+        <details><summary class="tiny"><b>Model names (only if a list stays empty)</b></summary>
+          <p class="muted tiny" style="margin:8px 0">Some services don't let a phone browser list their models. Type the model you want, e.g. the name shown in that provider's docs.</p>
+          ${PAID_FIELDS.filter(([id]) => id !== 'perplexity').map(([id, label]) => `<label class="field">${label} model<input name="${id}Model" autocomplete="off" placeholder="model name"></label>`).join('')}
+        </details>
         <details><summary class="tiny"><b>Claude or a custom server</b></summary>
           <label class="field" style="margin-top:10px">Claude API key ${k.anthropic ? '<span class="mbadge">SAVED</span>' : ''}<input name="anthropic" type="password" autocomplete="off" placeholder="${k.anthropic ? '•••••• (leave blank to keep)' : 'sk-ant-…'}"></label>
           <p class="muted tiny" style="margin:-8px 0 12px">From console.anthropic.com. Paid per use; adds real web search.</p>
@@ -1551,6 +1611,25 @@
     'add-step': () => { syncBuilder(); ui.builder.steps.push({ name: '', agent: S.agents[0]?.id, instructions: '' }); renderSheet(); },
     'rm-step': (i) => { syncBuilder(); ui.builder.steps.splice(+i, 1); renderSheet(); },
     'new-agent': () => openSheet('gallery'),
+    'bridge-token': () => {
+      const t = Array.from(crypto.getRandomValues(new Uint8Array(24)), (b) => b.toString(36).padStart(2, '0')).join('').slice(0, 32);
+      const inp = $('form[data-form=bridge] input[name=token]'); if (inp) { inp.type = 'text'; inp.value = t; inp.select(); }
+      navigator.clipboard?.writeText(t).then(() => toast('Token copied. Add it to Netlify and to Muse'), () => toast('Token made. Copy it from the box'));
+    },
+    'bridge-off': () => act(() => call('POST', 'bridge', { enabled: false }), 'Muse Bridge off'),
+    'pconn-add': (kind) => {
+      const c = CONN_CATALOG.find((x) => x.kind === kind); if (!c) return;
+      openSheet('form', null, `<form data-form="pconn" data-kind="${c.kind}"><h3>${c.icon} Connect ${esc(c.name)}</h3><p class="muted">${esc(c.blurb)}</p>
+        <div class="card" style="margin:10px 0"><p class="tiny" style="margin:0">${c.help}</p></div>
+        <label class="field">Name<input name="name" maxlength="40" value="${esc(c.via ? c.name : c.name)}"></label>
+        ${c.url ? `<input type="hidden" name="url" value="${esc(c.url)}">` : `<label class="field">${esc(c.urlLabel)}<input name="url" type="url" required placeholder="https://…"></label>`}
+        ${c.tokenLabel ? `<label class="field">${esc(c.tokenLabel)}<input name="token" type="password" autocomplete="off" ${c.kind === 'github' ? 'required' : ''}></label>` : ''}
+        <p class="muted tiny">🔒 Stored only on this phone. ${c.kind === 'url' || c.kind === 'github' ? 'Give tokens the least access they need.' : 'Your Zapier URL works like a password: keep it private.'}</p>
+        <button class="btn" type="submit">Connect</button></form>`);
+    },
+    'pconn-toggle': (id) => { const c = (S.connectors || []).find((x) => x.id === id); act(() => call('POST', `phone-connectors/${id}/toggle`, { enabled: !c?.enabled }), c?.enabled ? 'Connector off' : 'Connector on'); },
+    'pconn-test': async (id) => { toast('Testing…'); const r = await act(() => call('POST', `phone-connectors/${id}/test`)); if (r) toast(r.ok ? `Works from the phone: ${r.tools} tools ✅` : r.error, r.ok ? '' : 'bad'); },
+    'pconn-del': (id) => { if (confirm('Remove this connector from the phone?')) act(() => call('DELETE', `phone-connectors/${id}`), 'Removed'); },
     forge: (id) => openForge(id),
     'fb-step': (i) => { ui.forge.step = +i; renderSheet(); $('.sheet-panel').scrollTop = 0; },
     'fb-next': () => { ui.forge.step = Math.min(FORGE_STEPS.length - 1, ui.forge.step + 1); renderSheet(); $('.sheet-panel').scrollTop = 0; },
@@ -1578,7 +1657,7 @@
     },
     'use-model': (id) => act(() => call('PATCH', 'settings', { defaultModel: id }), 'Default brain set'),
     'forget-model': (id) => act(() => call('POST', 'brain/forget-device', { model: id }), 'Removed from the list (your browser may keep the cached files)'),
-    'clear-keys': () => { if (confirm('Remove all saved keys from this phone?')) act(() => call('POST', 'brain/keys', { anthropic: '', openrouter: '', groq: '', customUrl: '', customKey: '' }), 'Keys removed'); },
+    'clear-keys': () => { if (confirm('Remove all saved keys from this phone?')) act(() => call('POST', 'brain/keys', { clear: true, customUrl: '' }), 'Keys removed'); },
     'welcome-phone': async () => { cfg.source = 'phone'; store.set('cfg', cfg); closeSheet(); await refresh(); render(); schedule(); openSheet('brain'); },
     'welcome-demo': async () => { cfg.source = 'demo'; store.set('cfg', cfg); closeSheet(); await refresh(); render(); schedule(); if (!store.get('toured', false)) setTimeout(startTour, 400); },
     'welcome-server': () => { cfg.source = 'server'; store.set('cfg', cfg); closeSheet(); ACTIONS.settings(); },
@@ -1698,9 +1777,17 @@
       const ok = await act(() => call('POST', 'memories', { fact: f.fact.value.trim(), agent: f.agent.value || null }), 'Remembered 🧠');
       if (ok) closeSheet();
     },
+    async bridge(f) {
+      const r = await act(() => call('POST', 'bridge', { token: f.token.value.trim(), url: f.url?.value.trim() || '', enabled: true }));
+      if (r) toast(r.ok ? 'Muse Bridge connected 🤝 Muse is on your floor' : `Saved, but not connected yet: ${r.error}`, r.ok ? '' : 'bad');
+    },
+    async pconn(f) {
+      const r = await act(() => call('POST', 'phone-connectors', { kind: f.dataset.kind, name: f.name.value.trim(), url: f.url.value.trim(), token: f.token?.value.trim() || '' }));
+      if (r) { closeSheet(); toast(r.ok ? `Connected: ${r.tools} tools ✅` : 'Saved. It will work with Claude brains (the phone can\'t reach it directly)', r.ok ? '' : 'bad'); }
+    },
     async keys(f) {
       const body = {};
-      for (const n of ['openrouter', 'groq', 'anthropic', 'customKey']) if (f[n]?.value.trim()) body[n] = f[n].value.trim();
+      for (const n of ['openrouter', 'groq', 'anthropic', 'customKey', ...PAID_FIELDS.map(([id]) => id), ...PAID_FIELDS.map(([id]) => `${id}Model`)]) if (f[n]?.value.trim()) body[n] = f[n].value.trim();
       if (f.customUrl) body.customUrl = f.customUrl.value.trim();
       const r = await act(() => call('POST', 'brain/keys', body), 'Keys saved on this phone');
       if (r) { f.reset(); toast(r.count ? `${r.count} model(s) ready ✅` : 'Saved, but no models were found yet. Check the key.', r.count ? '' : 'bad'); renderSheet(); }

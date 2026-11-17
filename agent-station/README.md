@@ -21,6 +21,25 @@ The app is a set of static files, so any free static host works:
 2. Open the link on your phone. On **iPhone**, use Safari → Share → **Add to Home Screen**. On **Android**, use Chrome → ⋮ → **Install app**.
 3. It opens full-screen like a native app. Choose **Run them on this phone** and set up a brain.
 
+### Paid brains
+Paste a key in **🧠 → Set up brains → 💳 Paid brains** for **OpenAI (GPT)**, **Google Gemini**, **xAI Grok**, **Mistral**, **DeepSeek** or **Perplexity** (live web search, chat only), alongside Claude. Keys stay on the phone. If a provider doesn't let a phone browser list its models, type the model name under *Model names*.
+
+### Work connectors (real actions in your apps)
+**Brain → Connect → 🔌 Work connectors**: **Zapier** (8,000+ apps; also the route for **Gmail, Google Calendar, Drive, Notion and Slack**), **GitHub** (official MCP server + personal access token), or **any MCP server** by URL. With a **Claude** brain, Anthropic connects to the servers for you (every connector works). Other brains connect straight from the phone, which works when the service allows browser requests; the app shows which ones do.
+
+### 🤝 Muse Bridge
+Connect your **Muse** agent so it works alongside your agents: give Muse tasks from the app (they come back with Muse's answer), let Muse give *your* agents tasks and run your workflows, and watch Muse's activity at its own desk on the floor.
+
+How it works: a small Netlify Function (`netlify/functions/bridge.mjs`, logic in `bridge/core.mjs`) hosts an MCP endpoint at `/bridge/mcp` for Muse and a sync endpoint the app talks to while it's open. State lives in Netlify Blobs.
+
+Setup:
+1. In the app: **Brain → Connect → 🤝 Muse → 🎲 New** (makes and copies a token).
+2. In Netlify: **Site configuration → Environment variables**, add `BRIDGE_TOKEN` = that token, then **Deploys → Trigger deploy**. Make the site **public** so Muse can reach it (the token keeps the bridge locked).
+3. In Muse: add a connector (MCP server) with URL `https://<your-site>.netlify.app/bridge/mcp` and header `Authorization: Bearer <token>`.
+4. Back in the app: paste the token and tap **Turn on Muse Bridge**.
+
+Muse gets these tools: `station_overview`, `give_task`, `check_task`, `run_workflow`, `report_activity`, `get_my_tasks`, `complete_my_task`. Your agents run in the app, so Muse's requests start while the app is open. To run the bridge elsewhere: `BRIDGE_TOKEN=… node bridge/dev-server.mjs`.
+
 ## Optional: computer server (power mode)
 Everything in this section needs the station server (`server/`) running on a computer. It adds Ollama and other local models, MCP connectors, studio voices and voice cloning. The phone connects to it from ⚙️ → *On my computer*.
 
@@ -131,6 +150,7 @@ Open the address it prints. On your phone, use your computer's Wi-Fi IP, e.g. `h
 
 ## How it fits together
 - `index.html`, `app.js`, `styles.css`, `characters.js` (CC0 characters and avatar art): the mobile app (no build step).
+- `bridge/`, `netlify/functions/`, `netlify.toml`, `package.json`: the Muse Bridge (Netlify Function + Netlify Blobs).
 - `engine.js`: the on-phone agent engine (agent loop with native tool calling, storage in IndexedDB, wllama on-device models, OpenRouter/Groq/Claude brains). `_headers`: enables multi-core on-device inference on Netlify/Cloudflare Pages. `vendor/anthropic-sdk.mjs`: the official Anthropic SDK bundled for browsers. `sw.js` and `manifest.webmanifest` make it installable.
 - `server/server.mjs`: runs each task as a tool-use loop (memory, skills, files, web, plugins, connectors), serves the app, and exposes an API under `/api/` that the app polls.
 - `server/providers.mjs`: Claude plus OpenAI-compatible providers (Ollama, OpenRouter, Groq, custom) and model discovery.

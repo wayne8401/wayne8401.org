@@ -1,0 +1,9 @@
+{
+  "name": "agent-station-app",
+  "private": true,
+  "type": "module",
+  "description": "Agent Station phone app (static) + Muse Bridge Netlify Function",
+  "dependencies": {
+    "@netlify/blobs": "^11.1.9"
+  }
+}

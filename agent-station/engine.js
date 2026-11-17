@@ -69,7 +69,7 @@
     try {
       const saved = await idb.get('state');
       if (saved) state = { ...DEFAULT(), ...saved, settings: { ...DEFAULT().settings, ...(saved.settings || {}) } };
-      for (const t of state.tasks) if (t.status === 'running' || t.status === 'queued') { t.status = 'error'; t.result = 'The app was closed before this task finished. Keep the app open while agents work.'; }
+      for (const t of state.tasks) if ((t.status === 'running' || t.status === 'queued') && t.agent !== 'muse') { t.status = 'error'; t.result = 'The app was closed before this task finished. Keep the app open while agents work.'; }
       for (const r of state.runs) if (r.status === 'running') { r.status = 'error'; r.steps.forEach((st) => { if (st.status === 'running') st.status = 'error'; }); }
     } catch { /* storage unavailable: run in memory */ }
   })();
@@ -110,7 +110,16 @@
     { model: 'claude-sonnet-5-5', label: 'Claude Sonnet 5.5', price: [2, 10] },
     { model: 'claude-haiku-5-5', label: 'Claude Haiku 5.5', price: [0.1, 0.5] },
   ];
-  const OPENAI_BASE = { openrouter: 'https://openrouter.ai/api/v1', groq: 'https://api.groq.com/openai/v1' };
+  // Paid AI providers with OpenAI-compatible chat APIs (keys stay on this phone).
+  const PAID = {
+    openai: { label: 'OpenAI', base: 'https://api.openai.com/v1', keep: (id) => /^(gpt-|o\d|chatgpt-)/i.test(id) && !/audio|realtime|image|embed|tts|transcri|search|moderation|instruct|dall|codex-mini/i.test(id) },
+    gemini: { label: 'Gemini', base: 'https://generativelanguage.googleapis.com/v1beta/openai', keep: (id) => /gemini/i.test(id) && !/embed|image|tts|aqa|live|native-audio/i.test(id) },
+    xai: { label: 'Grok', base: 'https://api.x.ai/v1', keep: (id) => /grok/i.test(id) && !/image|imagine/i.test(id) },
+    mistral: { label: 'Mistral', base: 'https://api.mistral.ai/v1', keep: (id) => !/embed|moderation|ocr|transcri|voxtral/i.test(id) },
+    deepseek: { label: 'DeepSeek', base: 'https://api.deepseek.com/v1', keep: () => true },
+    perplexity: { label: 'Perplexity', base: 'https://api.perplexity.ai', fixed: ['sonar', 'sonar-pro', 'sonar-reasoning-pro'], tools: false },
+  };
+  const OPENAI_BASE = { openrouter: 'https://openrouter.ai/api/v1', groq: 'https://api.groq.com/openai/v1', ...Object.fromEntries(Object.entries(PAID).map(([k, v]) => [k, v.base])) };
   const hasWebGPU = () => typeof navigator !== 'undefined' && !!navigator.gpu;
   const canRunLocal = () => typeof WebAssembly === 'object' && typeof Worker === 'function';
 
@@ -152,6 +161,23 @@
         providers.groq = { ready: ids.length > 0, note: `${ids.length} model(s)` };
       } catch (e) { providers.groq = { ready: false, note: `Couldn't reach Groq (${e.message})` }; }
     } else providers.groq = { ready: false, note: 'No key' };
+    // Paid providers
+    for (const [pid, P] of Object.entries(PAID)) {
+      if (!k[pid]) { providers[pid] = { ready: false, note: 'No key' }; continue; }
+      let ids = [];
+      if (P.fixed) ids = P.fixed;
+      else {
+        try {
+          const r = await fetch(`${P.base}/models`, { headers: { Authorization: `Bearer ${k[pid]}` }, signal: AbortSignal.timeout(8000) });
+          if (r.status === 401 || r.status === 403) { providers[pid] = { ready: false, note: 'Key rejected. Check it in Set up brains' }; continue; }
+          ids = ((await r.json()).data || []).map((m) => String(m.id).replace(/^models\//, '')).filter(P.keep).sort().reverse().slice(0, 25);
+        } catch { ids = []; }
+      }
+      if (k[`${pid}Model`]) ids = [...new Set([k[`${pid}Model`], ...ids])];
+      ids.forEach((id) => add(pid, id, `${id} (${P.label})`, false, { tools: P.tools !== false && !state.settings.noTools?.[`${pid}:${id}`] }));
+      providers[pid] = ids.length ? { ready: true, note: `${ids.length} model(s)${P.tools === false ? ' · chat with live web search' : ''}` }
+        : { ready: false, note: "Key saved, but the model list couldn't be loaded from the phone. Type a model name in Set up brains." };
+    }
     // Custom
     if (k.customUrl) {
       try {
@@ -171,8 +197,10 @@
   const defaultModel = () => {
     if (state.settings.defaultModel && modelCache.models.some((m) => m.id === state.settings.defaultModel)) return state.settings.defaultModel;
     const ms = modelCache.models.filter((m) => m.tools !== false).length ? modelCache.models.filter((m) => m.tools !== false) : modelCache.models;
-    const pick = ms.find((m) => m.provider === 'device')
-      || ms.find((m) => m.provider === 'anthropic' && m.model === 'claude-opus-5-5')
+    const paidOrder = ['anthropic', 'openai', 'gemini', 'xai', 'mistral', 'deepseek'];
+    const pick = ms.find((m) => m.provider === 'anthropic' && m.model === 'claude-opus-5-5')
+      || paidOrder.map((p) => ms.find((m) => m.provider === p)).find(Boolean)
+      || ms.find((m) => m.provider === 'device')
       || [...ms.filter((m) => m.provider === 'openrouter' || m.provider === 'groq')].sort((a, b) => rankFree(a) - rankFree(b))[0]
       || ms[0];
     return pick?.id || '';
@@ -216,6 +244,63 @@
       device.error = e.message || String(e);
       throw httpError(`Couldn't load the on-device model: ${device.error}`);
     } finally { device.loading = false; device.loadingModel = ''; }
+  }
+
+  /* ------------------------------------------------- work connectors */
+  // Remote MCP servers (Zapier, GitHub, any URL). With a Claude brain, Anthropic connects to them
+  // server-side (works for every server). Other brains connect from the phone, which works when the
+  // server allows browser requests (CORS).
+  const CONN_LS = 'as.connectors';
+  const connectors = () => { try { return JSON.parse(localStorage.getItem(CONN_LS)) || []; } catch { return []; } };
+  const setConnectors = (c) => { try { localStorage.setItem(CONN_LS, JSON.stringify(c)); } catch { /* private mode */ } };
+  const mcpSessions = {};
+  const MCP_PROTO = '2025-06-18';
+  async function mcpRpc(c, method, params, sessionId, notify = false) {
+    const headers = { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream', 'MCP-Protocol-Version': MCP_PROTO };
+    if (c.token) headers.Authorization = `Bearer ${c.token}`;
+    if (sessionId) headers['Mcp-Session-Id'] = sessionId;
+    const id = notify ? undefined : Math.floor(Math.random() * 1e9);
+    const res = await fetch(c.url, { method: 'POST', headers, body: JSON.stringify({ jsonrpc: '2.0', ...(notify ? {} : { id }), method, ...(params ? { params } : {}) }), signal: AbortSignal.timeout(60000) });
+    if (notify) return {};
+    if (res.status === 401 || res.status === 403) throw new Error('The connector rejected the token');
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    let msg;
+    if ((res.headers.get('content-type') || '').includes('text/event-stream')) {
+      for (const line of (await res.text()).split('\n')) if (line.startsWith('data:')) { try { const j = JSON.parse(line.slice(5)); if (j.id === id) msg = j; } catch { /* skip */ } }
+    } else msg = await res.json();
+    if (!msg || msg.jsonrpc !== '2.0') throw new Error("That address didn't answer like an MCP connector. Check the URL.");
+    if (msg.error) throw new Error(msg.error.message || 'Connector error');
+    if (msg.result === undefined) throw new Error("That address didn't answer like an MCP connector. Check the URL.");
+    return { result: msg.result, sessionId: res.headers.get('mcp-session-id') || sessionId };
+  }
+  async function mcpConnect(c, fresh = false) {
+    const s = mcpSessions[c.id];
+    if (!fresh && s && now() - s.at < 10 * 60e3) return s;
+    try {
+      const init = await mcpRpc(c, 'initialize', { protocolVersion: MCP_PROTO, capabilities: {}, clientInfo: { name: 'agent-station', version: '1.0.0' } });
+      await mcpRpc(c, 'notifications/initialized', null, init.sessionId, true).catch(() => {});
+      const { result } = await mcpRpc(c, 'tools/list', {}, init.sessionId);
+      return (mcpSessions[c.id] = { ok: true, at: now(), sessionId: init.sessionId, tools: result?.tools || [] });
+    } catch (e) {
+      const blocked = e instanceof TypeError;
+      return (mcpSessions[c.id] = { ok: false, at: now(), tools: [], error: blocked ? 'This connector blocks requests from the phone browser. It works when the agent uses a Claude brain.' : e.message });
+    }
+  }
+  const connName = (c) => `mcp_${c.id}`.replace(/[^a-zA-Z0-9_]/g, '_').slice(0, 30);
+  async function connectorToolDefs() {
+    const defs = [];
+    for (const c of connectors().filter((x) => x.enabled)) {
+      const s = await mcpConnect(c);
+      for (const t of s.tools) defs.push({ name: `${connName(c)}__${t.name}`.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 64), description: `[${c.name}] ${t.description || t.name}`.slice(0, 1000), parameters: t.inputSchema?.type === 'object' ? t.inputSchema : { type: 'object', properties: {} }, _conn: c, _tool: t.name });
+    }
+    return defs;
+  }
+  async function callConnectorTool(def, input) {
+    const s = await mcpConnect(def._conn);
+    const { result } = await mcpRpc(def._conn, 'tools/call', { name: def._tool, arguments: input || {} }, s.sessionId);
+    const out = (result?.content || []).map((b) => (b.type === 'text' ? b.text : `[${b.type}]`)).join('\n');
+    if (result?.isError) throw new Error(out || 'Connector tool error');
+    return out.length > 30000 ? out.slice(0, 30000) + '\n…[truncated]' : out || '(no output)';
   }
 
   /* ------------------------------------------------------------ tools */
@@ -283,7 +368,8 @@
       .filter((x) => !words.length || x.score > 0).sort((a, b) => b.score - a.score || b.m.ts - a.m.ts).slice(0, limit).map((x) => x.m);
   }
 
-  async function runTool(name, input, { agent, task }) {
+  async function runTool(name, input, { agent, task, extraMap }) {
+    if (extraMap?.[name]) { event('info', agent.id, `Using ${extraMap[name]._conn.name}: ${extraMap[name]._tool}`); return callConnectorTool(extraMap[name], input); }
     input = input || {};
     switch (name) {
       case 'report_progress': { const pct = Math.max(0, Math.min(100, +input.percent || 0)); live[agent.id] = { ...live[agent.id], task: input.message, progress: pct }; task.log.push({ ts: now(), msg: String(input.message) }); event('info', agent.id, input.message); return 'ok'; }
@@ -362,10 +448,18 @@ ${web}
       ...PLUGINS.filter(pluginOn).map((p) => ({ name: p.name, description: p.description, input_schema: p.parameters, strict: true })),
     ];
     const fallback = /^claude-(opus-5-5|sonnet-5-5)/.test(model) ? { betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' } : {};
+    // Work connectors: Anthropic connects to the MCP servers on its side, so every connector works here.
+    const conns = connectors().filter((c) => c.enabled);
+    const mcp = conns.length ? {
+      mcp_servers: conns.map((c) => ({ type: 'url', url: c.url, name: connName(c), ...(c.token ? { authorization_token: c.token } : {}) })),
+      betas: [...(fallback.betas || []), 'mcp-client-2025-11-20'],
+    } : {};
+    conns.forEach((c) => tools.push({ type: 'mcp_toolset', mcp_server_name: connName(c) }));
+    if (conns.length) task.log.push({ ts: now(), msg: `Connectors ready: ${conns.map((c) => c.name).join(', ')}` });
     const messages = [{ role: 'user', content: preamble(agent, task.prompt, task.voice) }];
     let final = '';
     for (let turn = 0; turn < 25; turn++) {
-      const r = await client.beta.messages.create({ model, max_tokens: 16000, system: [{ type: 'text', text: systemPrompt(agent, 'anthropic'), cache_control: { type: 'ephemeral' } }], output_config: { effort: 'medium' }, ...fallback, tools, messages });
+      const r = await client.beta.messages.create({ model, max_tokens: 16000, system: [{ type: 'text', text: systemPrompt(agent, 'anthropic'), cache_control: { type: 'ephemeral' } }], output_config: { effort: 'medium' }, ...fallback, ...mcp, tools, messages });
       addUsage(agent, task, r.usage, modelId);
       const text = r.content.filter((b) => b.type === 'text').map((b) => b.text).join('\n').trim(); if (text) final = text;
       if (r.stop_reason === 'refusal') throw new Error('The model declined this request.');
@@ -424,7 +518,11 @@ ${web}
 
   // One tool-calling loop for every OpenAI-style brain: online providers and on-device models.
   async function runToolLoop(agent, task, modelId, chat, { maxTurns = 20, compact = false, provider = 'openai' } = {}) {
-    const tools = toolDefs().map((t) => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.parameters } }));
+    const extra = provider === 'device' ? [] : await connectorToolDefs(); // small on-device models get the core tools only
+    if (extra.length) task.log.push({ ts: now(), msg: `Connector tools ready: ${extra.length}` });
+    const extraMap = Object.fromEntries(extra.map((d) => [d.name, d]));
+    const ctxExtra = { extraMap };
+    const tools = [...toolDefs(), ...extra].map((t) => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.parameters } }));
     const messages = [{ role: 'system', content: systemPrompt(agent, provider) }, { role: 'user', content: preamble(agent, task.prompt, task.voice, compact) }];
     let final = '';
     for (let turn = 0; turn < maxTurns; turn++) {
@@ -439,7 +537,7 @@ ${web}
       calls.forEach((c, i) => { c.id ||= `call_${turn}_${i}`; c.type ||= 'function'; });
       messages.push({ role: 'assistant', content: m.content || '', tool_calls: calls });
       const parsed = calls.map((c) => { let input = null; try { input = typeof c.function.arguments === 'string' ? JSON.parse(c.function.arguments || '{}') : c.function.arguments || {}; } catch { /* bad JSON */ } return { id: c.id, name: c.function.name, input }; });
-      const res = await runTools(parsed.filter((p) => p.input), { agent, task });
+      const res = await runTools(parsed.filter((p) => p.input), { agent, task, ...ctxExtra });
       parsed.filter((p) => !p.input).forEach((p) => res.push({ id: p.id, content: 'Error: arguments were not valid JSON. Try again.' }));
       res.forEach((x) => messages.push({ role: 'tool', tool_call_id: x.id, content: compact ? x.content.slice(0, 2500) : x.content }));
     }
@@ -507,6 +605,86 @@ You are running on a chat-only brain: you can't use tools, browse, save files or
     }
   }
 
+  /* ------------------------------------------------------ Muse Bridge */
+  const BRIDGE_LS = 'as.bridge';
+  const bridgeCfg = () => { try { return JSON.parse(localStorage.getItem(BRIDGE_LS)) || {}; } catch { return {}; } };
+  const setBridgeCfg = (c) => { try { localStorage.setItem(BRIDGE_LS, JSON.stringify(c)); } catch { /* private mode */ } };
+  const defaultBridgeUrl = () => (typeof location !== 'undefined' && /^https?:/.test(location.origin) ? `${location.origin}/bridge` : '');
+  const bridge = { connected: false, lastSync: 0, error: '', reportsSeen: {}, waiters: {} };
+  const MUSE_LOOK = { shape: 'tall', eyes: 'dot', mouth: 'smile', top: 'none', bg: '#1f1a17', fg: '#efe4d6', accent: '#ffb7a6', cheeks: true };
+  function ensureMuse(on) {
+    const has = state.agents.find((a) => a.id === 'muse');
+    if (on && !has) { state.agents.push({ id: 'muse', name: 'Muse', role: 'Your Muse agent', station: 'ops', external: true, look: MUSE_LOOK, instructions: 'External agent: tasks are sent to Muse through the Muse Bridge.' }); event('success', 'muse', 'Muse joined your station 🤝'); save(); }
+  }
+  async function bridgeSync() {
+    const cfg = bridgeCfg(); if (!cfg.enabled || !cfg.token) return;
+    const url = (cfg.url || defaultBridgeUrl()).replace(/\/$/, ''); if (!url) return;
+    ensureMuse(true);
+    state.bridge ||= { taken: {}, sentInbox: {} };
+    const B = state.bridge;
+    // tasks the user gave to Muse that haven't been sent yet
+    const inboxNew = state.tasks.filter((t) => t.agent === 'muse' && t.status === 'running' && !B.sentInbox[t.id]).map((t) => ({ id: t.id, prompt: t.prompt, voice: !!t.voice }));
+    // results for commands Muse sent us
+    const commandUpdates = [];
+    for (const [cmdId, info] of Object.entries(B.taken)) {
+      if (info.reported) continue;
+      if (info.kind === 'failed') { commandUpdates.push({ id: cmdId, status: 'error', result: `Agent Station couldn't start this: ${info.error}` }); info.reported = true; continue; }
+      if (info.kind === 'task') { const t = state.tasks.find((x) => x.id === info.ref); if (t && (t.status === 'done' || t.status === 'error')) { commandUpdates.push({ id: cmdId, status: t.status, taskId: t.id, result: t.result, files: t.files }); info.reported = true; } }
+      else { const r = state.runs.find((x) => x.id === info.ref); if (r && r.status !== 'running') { commandUpdates.push({ id: cmdId, status: r.status === 'done' ? 'done' : 'error', taskId: r.id, result: r.output || 'The workflow stopped early.' }); info.reported = true; } }
+    }
+    const snapshot = {
+      agents: state.agents.map((a) => ({ id: a.id, name: a.name, role: a.role, station: a.station, status: (live[a.id] || {}).status || 'idle', doing: (live[a.id] || {}).task || '' })),
+      workflows: state.workflows.map((w) => ({ id: w.id, name: w.name, description: w.description, steps: w.steps.map((st) => `${st.name} (${agentById(st.agent)?.name || st.agent})`) })),
+      recent: state.tasks.filter((t) => t.status === 'done').slice(0, 6).map((t) => ({ agent: agentById(t.agent)?.name || t.agent, task: (t.title || t.prompt).slice(0, 120), result: String(t.result || '').slice(0, 800), files: t.files })),
+    };
+    let res;
+    try {
+      const r = await fetch(`${url}/sync`, { method: 'POST', headers: { Authorization: `Bearer ${cfg.token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ snapshot, inboxNew, commandUpdates }) });
+      res = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(res.error || `HTTP ${r.status}`);
+      Object.assign(bridge, { connected: true, lastSync: now(), error: '' });
+    } catch (e) {
+      commandUpdates.forEach((u) => { if (B.taken[u.id]) B.taken[u.id].reported = false; });
+      Object.assign(bridge, { connected: false, error: e instanceof TypeError ? "Can't reach the bridge. Check the address and your connection." : e.message });
+      return;
+    }
+    inboxNew.forEach((t) => { B.sentInbox[t.id] = true; });
+    // new work from Muse
+    for (const c of res.commands || []) {
+      if (B.taken[c.id]) continue;
+      try {
+        if (c.type === 'task') { const t = createTask(c.agent, c.prompt, { title: `🤝 From Muse: ${c.prompt.slice(0, 60)}`, fromMuse: c.id }); B.taken[c.id] = { kind: 'task', ref: t.id }; event('info', 'muse', `Muse gave ${agentById(c.agent)?.name || c.agent} a task`); }
+        else { const w = state.workflows.find((x) => x.id === c.workflow); const run = runWorkflow(w, c.input); B.taken[c.id] = { kind: 'workflow', ref: run.id }; event('info', 'muse', `Muse started “${w.name}”`); }
+      } catch (e) { B.taken[c.id] = { kind: 'failed', error: e.message }; event('error', 'muse', `Couldn't start Muse's request: ${e.message}`); }
+    }
+    // answers from Muse to tasks the user assigned it
+    for (const item of res.inbox || []) {
+      if (item.status !== 'done' && item.status !== 'error') continue;
+      const t = state.tasks.find((x) => x.id === item.id);
+      if (!t || t.status === 'done' || t.status === 'error') continue;
+      const w = bridge.waiters[t.id];
+      if (w) { delete bridge.waiters[t.id]; w(item); }
+      else { Object.assign(t, { status: item.status, result: item.result, finishedAt: now() }); live.muse = { status: 'idle' }; event(item.status === 'done' ? 'success' : 'error', 'muse', `Muse finished: ${t.prompt.slice(0, 60)}`); }
+    }
+    // Muse's activity on its desk
+    const reps = res.reports || [];
+    const waiting = state.tasks.some((t) => t.agent === 'muse' && t.status === 'running');
+    const latest = reps[0];
+    if (latest && latest.status === 'working' && now() - latest.at < 15 * 60e3) live.muse = { status: 'running', task: `${latest.title}${latest.detail ? ': ' + latest.detail : ''}`, progress: 50 };
+    else if (waiting) live.muse = { status: 'running', task: 'Waiting for Muse to pick up your task…', progress: 10 };
+    else if (live.muse?.status === 'running') live.muse = { status: 'idle' };
+    for (const r of reps.slice().reverse()) {
+      const key = `${r.id}:${r.status}`;
+      if (bridge.reportsSeen[key]) continue;
+      bridge.reportsSeen[key] = true;
+      if (Object.keys(bridge.reportsSeen).length > 1 || bridge.primed) event(r.status === 'error' ? 'error' : r.status === 'done' ? 'success' : 'info', 'muse', `Muse ${r.status === 'done' ? 'finished' : r.status === 'error' ? 'hit a problem with' : 'is working on'}: ${r.title}${r.detail ? ' (' + r.detail.slice(0, 80) + ')' : ''}`);
+    }
+    bridge.primed = true;
+    bridge.reports = reps;
+    save();
+  }
+  setInterval(() => { if (typeof document === 'undefined' || !document.hidden) bridgeSync().catch(() => {}); }, 5000);
+
   /* ---------------------------------------------- tasks and workflows */
   const queues = {};
   function createTask(agentId, prompt, extra = {}) {
@@ -521,6 +699,18 @@ You are running on a chat-only brain: you can't use tools, browse, save files or
     save(); return task;
   }
   async function execute(agent, task) {
+    if (agent.external) {
+      // Muse works on its own; the bridge delivers the task and brings the answer back.
+      task.status = 'running'; task.startedAt = now();
+      task.log.push({ ts: now(), msg: bridgeCfg().enabled ? 'Sent to Muse through the Muse Bridge' : 'Muse Bridge is off: turn it on in Brain → Connect' });
+      live[agent.id] = { status: 'running', task: 'Waiting for Muse to pick up your task…', progress: 10 };
+      save(); bridgeSync().catch(() => {});
+      const item = await new Promise((res) => { bridge.waiters[task.id] = res; });
+      Object.assign(task, { status: item.status === 'error' ? 'error' : 'done', result: item.result, finishedAt: now() });
+      live[agent.id] = { status: 'idle' };
+      event(task.status === 'done' ? 'success' : 'error', agent.id, `Muse finished: ${task.prompt.slice(0, 60)}`); save();
+      return task;
+    }
     task.status = 'running'; task.startedAt = now();
     live[agent.id] = { status: 'running', task: 'Thinking…', progress: 3 };
     save();
@@ -578,6 +768,12 @@ You are running on a chat-only brain: you can't use tools, browse, save files or
     { id: 'openrouter', label: 'OpenRouter: free online open models', free: true, setup: 'Free key at openrouter.ai → paste it in Set up brains. ":free" models cost nothing (rate-limited).' },
     { id: 'groq', label: 'Groq: fast free tier', free: true, setup: 'Free key at console.groq.com → paste it in Set up brains.' },
     { id: 'anthropic', label: 'Claude (Anthropic)', free: false, setup: 'Key from console.anthropic.com → paste it in Set up brains. Paid per use; includes real web search.' },
+    { id: 'openai', label: 'OpenAI (GPT)', free: false, setup: 'Key from platform.openai.com → API keys. Paid per use.' },
+    { id: 'gemini', label: 'Google Gemini', free: false, setup: 'Key from aistudio.google.com → Get API key. Has a free tier; paid per use beyond it.' },
+    { id: 'xai', label: 'xAI Grok', free: false, setup: 'Key from console.x.ai. Paid per use.' },
+    { id: 'mistral', label: 'Mistral', free: false, setup: 'Key from console.mistral.ai. Paid per use.' },
+    { id: 'deepseek', label: 'DeepSeek', free: false, setup: 'Key from platform.deepseek.com. Paid per use; low prices.' },
+    { id: 'perplexity', label: 'Perplexity (live web search)', free: false, setup: 'Key from perplexity.ai → Settings → API. Answers with live web search (chat only).' },
     { id: 'custom', label: 'Custom OpenAI-compatible server', free: true, setup: 'URL (https) and optional key of any OpenAI-compatible server.' },
   ];
   function status() {
@@ -588,7 +784,9 @@ You are running on a chat-only brain: you can't use tools, browse, save files or
       models: modelCache.models, providers: PROVIDER_INFO.map((p) => ({ ...p, ...(modelCache.providers[p.id] || { ready: false, note: '' }) })),
       device: { webgpu: hasWebGPU(), supported: canRunLocal(), loading: device.loading, loadingModel: device.loadingModel || '', progress: device.progress, text: device.text, error: device.error, loaded: device.model, downloaded: state.settings.downloaded, models: DEVICE_MODELS },
       keys: Object.fromEntries(Object.entries(keys()).map(([k, v]) => [k, k === 'customUrl' ? v : !!v])),
-      connectors: [], plugins: PLUGINS.map((p) => ({ name: p.name, label: p.label, icon: p.icon, description: p.description, enabled: pluginOn(p) })),
+      connectors: connectors().map((c) => { const s = mcpSessions[c.id]; return { id: c.id, name: c.name, kind: c.kind, host: (() => { try { return new URL(c.url).host; } catch { return c.url; } })(), enabled: !!c.enabled, hasToken: !!c.token, browser: s ? (s.ok ? 'ok' : 'blocked') : 'unknown', tools: s?.tools?.map((t) => t.name) || [], error: s?.error || '' }; }),
+      bridge: { enabled: !!bridgeCfg().enabled, hasToken: !!bridgeCfg().token, url: bridgeCfg().url || defaultBridgeUrl(), connected: bridge.connected, lastSync: bridge.lastSync, error: bridge.error, mcpUrl: `${(bridgeCfg().url || defaultBridgeUrl()).replace(/\/$/, '')}/mcp`, reports: (bridge.reports || []).slice(0, 5) },
+      plugins: PLUGINS.map((p) => ({ name: p.name, label: p.label, icon: p.icon, description: p.description, enabled: pluginOn(p) })),
       voice: { stt: false }, clone: { available: false }, studio: { available: false, voices: [] }, voices: [],
       stations: state.stations,
       agents: state.agents.map((a) => {
@@ -645,7 +843,8 @@ You are running on a chat-only brain: you can't use tools, browse, save files or
     // phone-only
     ['POST', /^brain\/keys$/, async (_, b) => {
       const k = keys();
-      for (const f of ['anthropic', 'openrouter', 'groq', 'customKey']) if (typeof b[f] === 'string') { if (b[f].trim()) k[f] = b[f].trim(); else delete k[f]; }
+      for (const f of ['anthropic', 'openrouter', 'groq', 'customKey', ...Object.keys(PAID), ...Object.keys(PAID).map((p) => `${p}Model`)]) if (typeof b[f] === 'string') { if (b[f].trim()) k[f] = b[f].trim(); else if (b[f] === '' && b.clear) delete k[f]; }
+      if (b.clear) for (const f of Object.keys(k)) if (!b[f]) delete k[f];
       if (typeof b.customUrl === 'string') { const u = b.customUrl.trim(); if (u && !/^https:\/\//.test(u) && !/^http:\/\/(localhost|127\.0\.0\.1)/.test(u)) throw httpError('Custom server must use https://'); if (u) k.customUrl = u; else delete k.customUrl; }
       // Check new keys right away so a typo shows up now, not on the first task.
       if (b.openrouter?.trim()) {
@@ -656,10 +855,36 @@ You are running on a chat-only brain: you can't use tools, browse, save files or
         const r = await fetch(`${OPENAI_BASE.groq}/models`, { headers: { Authorization: `Bearer ${b.groq.trim()}` } }).catch(() => null);
         if (r && (r.status === 401 || r.status === 403)) throw httpError('That Groq key was rejected. Copy it again from console.groq.com → API Keys.');
       }
+      for (const pid of Object.keys(PAID)) {
+        if (!b[pid]?.trim() || PAID[pid].fixed) continue;
+        const r = await fetch(`${PAID[pid].base}/models`, { headers: { Authorization: `Bearer ${b[pid].trim()}` } }).catch(() => null); // null = blocked by the browser; can't check, accept it
+        if (r && (r.status === 401 || r.status === 403)) throw httpError(`That ${PAID[pid].label} key was rejected. Copy it again from your ${PAID[pid].label} account.`);
+      }
       setKeys(k); const m = await discover(true); return { count: m.models.length };
     }],
     ['POST', /^brain\/device$/, (_, b) => { loadDevice(String(b.model || '')).catch(() => {}); return { ok: true }; }],
     ['POST', /^brain\/forget-device$/, (_, b) => { delete state.settings.downloaded[b.model]; save(); return discover(true).then(() => ({ ok: true })); }],
+    ['POST', /^phone-connectors$/, async (_, b) => {
+      let u; try { u = new URL(String(b.url || '').trim()); } catch { throw httpError('Paste the full connector address (it starts with https://)'); }
+      if (u.protocol !== 'https:') throw httpError('Connector addresses must start with https://');
+      const c = { id: slug(b.name || u.hostname).slice(0, 24) || uid('c'), name: String(b.name || u.hostname).slice(0, 40), kind: String(b.kind || 'url').slice(0, 20), url: u.href, token: String(b.token || '').trim(), enabled: true };
+      const list = connectors().filter((x) => x.id !== c.id); list.push(c); setConnectors(list);
+      const s = await mcpConnect(c, true);
+      event(s.ok ? 'success' : 'info', null, s.ok ? `Connector “${c.name}” ready with ${s.tools.length} tools` : `Connector “${c.name}” saved. ${s.error}`);
+      return { ok: s.ok, tools: s.tools.length, error: s.error || '' };
+    }],
+    ['POST', /^phone-connectors\/([\w-]+)\/toggle$/, ([id], b) => { const list = connectors(); const c = list.find((x) => x.id === id); if (!c) throw httpError('No such connector'); c.enabled = !!b.enabled; setConnectors(list); return { ok: true }; }],
+    ['POST', /^phone-connectors\/([\w-]+)\/test$/, async ([id]) => { const c = connectors().find((x) => x.id === id); if (!c) throw httpError('No such connector'); const s = await mcpConnect(c, true); return { ok: s.ok, tools: s.tools.length, error: s.error || '' }; }],
+    ['DELETE', /^phone-connectors\/([\w-]+)$/, ([id]) => { setConnectors(connectors().filter((x) => x.id !== id)); delete mcpSessions[id]; return { ok: true }; }],
+    ['POST', /^bridge$/, async (_, b) => {
+      const cfg = { ...bridgeCfg() };
+      if (typeof b.token === 'string' && b.token.trim()) cfg.token = b.token.trim();
+      if (typeof b.url === 'string') cfg.url = b.url.trim().replace(/\/+$/, '').replace(/\/(mcp|sync)$/, '');
+      if ('enabled' in b) cfg.enabled = !!b.enabled;
+      setBridgeCfg(cfg);
+      if (cfg.enabled) { ensureMuse(true); await bridgeSync(); if (!bridge.connected) return { ok: false, error: bridge.error }; }
+      return { ok: true };
+    }],
     ['POST', /^connectors\//, () => { throw httpError(NEEDS_COMPUTER); }],
   ];
 

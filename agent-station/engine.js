@@ -82,12 +82,21 @@
   const agentById = (id) => state.agents.find((a) => a.id === id);
 
   /* ----------------------------------------------------------- brains */
-  // Official Qwen GGUF builds (Apache-2.0). Qwen models are trained for native tool calling.
+  // Free models that run on the phone (GGUF, under the 2 GB browser limit, no sign-up needed).
+  // tools: true  = trained for native tool calling (files, memory, plugins…)
+  // tools: false = chat only (answers directly; great for writing and conversation)
   const DEVICE_MODELS = [
-    { model: 'Qwen/Qwen2.5-1.5B-Instruct-GGUF', label: 'Qwen2.5 1.5B', size: '≈1.1 GB', note: 'Recommended: reliable tool use at a good speed' },
-    { model: 'Qwen/Qwen2.5-0.5B-Instruct-GGUF', label: 'Qwen2.5 0.5B', size: '≈0.5 GB', note: 'Smallest and fastest; good for quick, simple tasks' },
-    { model: 'Qwen/Qwen3-1.7B-GGUF', label: 'Qwen3 1.7B', size: '≈1.8 GB', note: 'Newest and smartest of the three; slower' },
+    { model: 'Qwen/Qwen2.5-1.5B-Instruct-GGUF', label: 'Qwen2.5 1.5B', size: '≈1.1 GB', tools: true, license: 'Apache-2.0', note: 'Recommended: reliable tool use at a good speed' },
+    { model: 'Qwen/Qwen2.5-0.5B-Instruct-GGUF', label: 'Qwen2.5 0.5B', size: '≈0.5 GB', tools: true, license: 'Apache-2.0', note: 'Smallest and fastest; quick, simple tasks' },
+    { model: 'bartowski/Llama-3.2-1B-Instruct-GGUF', label: 'Llama 3.2 1B', size: '≈0.8 GB', tools: true, license: 'Llama 3.2 Community License (free)', note: "Meta's small Llama; fast" },
+    { model: 'bartowski/Llama-3.2-3B-Instruct-GGUF', label: 'Llama 3.2 3B', size: '≈2.0 GB', tools: true, license: 'Llama 3.2 Community License (free)', note: 'Smartest Llama that fits; needs a phone with 6 GB+ memory' },
+    { model: 'Qwen/Qwen3-1.7B-GGUF', label: 'Qwen3 1.7B', size: '≈1.8 GB', tools: true, license: 'Apache-2.0', note: 'Newest Qwen; smart but slower' },
+    { model: 'unsloth/gemma-3-1b-it-GGUF', label: 'Gemma 3 1B', size: '≈0.8 GB', tools: false, license: 'Gemma terms (free)', note: "Google's small model; friendly writing and chat" },
+    { model: 'HuggingFaceTB/SmolLM2-1.7B-Instruct-GGUF', label: 'SmolLM2 1.7B', size: '≈1.1 GB', tools: false, license: 'Apache-2.0', note: 'Fully open model by Hugging Face' },
+    { model: 'bartowski/DeepSeek-R1-Distill-Qwen-1.5B-GGUF', label: 'DeepSeek R1 Distill 1.5B', size: '≈1.1 GB', tools: false, license: 'MIT', note: 'Thinks step by step: puzzles, math, reasoning' },
+    { model: 'TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF', label: 'TinyLlama 1.1B', size: '≈0.7 GB', tools: false, license: 'Apache-2.0', note: 'Tiny classic Llama-style chat model' },
   ];
+  const deviceInfo = (model) => DEVICE_MODELS.find((m) => m.model === model);
   const CLAUDE = [
     { model: 'claude-opus-5-5', label: 'Claude Opus 5.5', price: [4, 20] },
     { model: 'claude-sonnet-5-5', label: 'Claude Sonnet 5.5', price: [2, 10] },
@@ -108,19 +117,22 @@
     // On-device
     if (canRunLocal()) {
       const have = DEVICE_MODELS.filter((m) => state.settings.downloaded[m.model]);
-      have.forEach((m) => add('device', m.model, `${m.label} (on this phone)`, true));
+      have.forEach((m) => add('device', m.model, `${m.label} (on this phone)`, true, { tools: m.tools }));
       providers.device = { ready: have.length > 0, note: have.length ? `${have.length} model(s) downloaded` : 'Download a model to start' };
     } else providers.device = { ready: false, note: "This browser can't run models on the phone. Update Chrome or Safari." };
     // Claude
-    if (k.anthropic) { CLAUDE.forEach((c) => add('anthropic', c.model, c.label, false)); providers.anthropic = { ready: true, note: 'Key saved on this phone' }; }
+    if (k.anthropic) { CLAUDE.forEach((c) => add('anthropic', c.model, c.label, false, { tools: true })); providers.anthropic = { ready: true, note: 'Key saved on this phone' }; }
     else providers.anthropic = { ready: false, note: 'No key' };
     // OpenRouter free models with tools
     if (k.openrouter) {
       try {
         const j = await (await fetch(`${OPENAI_BASE.openrouter}/models`, { signal: AbortSignal.timeout(8000) })).json();
-        const free = (j.data || []).filter((m) => m.id.endsWith(':free') && (m.supported_parameters || []).includes('tools') && !state.settings.noTools?.[`openrouter:${m.id}`]).slice(0, 30);
-        free.sort((a, b) => rankFree({ model: a.id }) - rankFree({ model: b.id })).forEach((m) => add('openrouter', m.id, (m.name || m.id).replace(/^[^:]{1,30}:\s*/, '').replace(/\s*\(free\)\s*$/i, '') + ' (free)', true));
-        providers.openrouter = { ready: free.length > 0, note: `${free.length} free model(s)` };
+        const toolOk = (m) => (m.supported_parameters || []).includes('tools') && !state.settings.noTools?.[`openrouter:${m.id}`];
+        const free = (j.data || []).filter((m) => m.id.endsWith(':free'))
+          .sort((a, b) => (toolOk(b) - toolOk(a)) || (rankFree({ model: a.id }) - rankFree({ model: b.id }))).slice(0, 40);
+        free.forEach((m) => add('openrouter', m.id, (m.name || m.id).replace(/^[^:]{1,30}:\s*/, '').replace(/\s*\(free\)\s*$/i, '') + ' (free)', true, { tools: toolOk(m) }));
+        const nt = free.filter(toolOk).length;
+        providers.openrouter = { ready: free.length > 0, note: `${free.length} free model(s), ${nt} with tools` };
       } catch (e) { providers.openrouter = { ready: false, note: `Couldn't list models (${e.message})` }; }
     } else providers.openrouter = { ready: false, note: 'No key' };
     // Groq
@@ -128,7 +140,7 @@
       try {
         const j = await (await fetch(`${OPENAI_BASE.groq}/models`, { headers: { Authorization: `Bearer ${k.groq}` }, signal: AbortSignal.timeout(8000) })).json();
         const ids = (j.data || []).map((m) => m.id).filter((id) => !/whisper|tts|guard|playai/i.test(id));
-        ids.forEach((id) => add('groq', id, `${id} (Groq)`, true));
+        ids.forEach((id) => add('groq', id, `${id} (Groq)`, true, { tools: !state.settings.noTools?.[`groq:${id}`] }));
         providers.groq = { ready: ids.length > 0, note: `${ids.length} model(s)` };
       } catch (e) { providers.groq = { ready: false, note: `Couldn't reach Groq (${e.message})` }; }
     } else providers.groq = { ready: false, note: 'No key' };
@@ -137,7 +149,7 @@
       try {
         const j = await (await fetch(`${k.customUrl.replace(/\/$/, '')}/models`, { headers: k.customKey ? { Authorization: `Bearer ${k.customKey}` } : {}, signal: AbortSignal.timeout(5000) })).json();
         const ids = (j.data || []).map((m) => m.id);
-        ids.forEach((id) => add('custom', id, `${id} (custom)`, true));
+        ids.forEach((id) => add('custom', id, `${id} (custom)`, true, { tools: !state.settings.noTools?.[`custom:${id}`] }));
         providers.custom = { ready: ids.length > 0, note: `${ids.length} model(s)` };
       } catch (e) { providers.custom = { ready: false, note: `Unreachable (${e.message})` }; }
     } else providers.custom = { ready: false, note: 'Not set' };
@@ -149,8 +161,8 @@
   const PREFERRED_FREE = [/llama-3\.3-70b/i, /deepseek-(chat|v3)/i, /qwen.*(72b|235b|32b|coder)/i, /gemini.*flash/i, /mistral-small/i, /llama-4/i, /qwen/i, /llama/i];
   const rankFree = (m) => { const i = PREFERRED_FREE.findIndex((re) => re.test(m.model)); return i < 0 ? 99 : i; };
   const defaultModel = () => {
-    const ms = modelCache.models;
-    if (state.settings.defaultModel && ms.some((m) => m.id === state.settings.defaultModel)) return state.settings.defaultModel;
+    if (state.settings.defaultModel && modelCache.models.some((m) => m.id === state.settings.defaultModel)) return state.settings.defaultModel;
+    const ms = modelCache.models.filter((m) => m.tools !== false).length ? modelCache.models.filter((m) => m.tools !== false) : modelCache.models;
     const pick = ms.find((m) => m.provider === 'device')
       || ms.find((m) => m.provider === 'anthropic' && m.model === 'claude-opus-5-5')
       || [...ms.filter((m) => m.provider === 'openrouter' || m.provider === 'groq')].sort((a, b) => rankFree(a) - rankFree(b))[0]
@@ -163,7 +175,7 @@
   const device = { engine: null, model: '', loading: false, loadingModel: '', progress: 0, text: '', error: '', gpu: false };
   async function loadDevice(model) {
     if (!canRunLocal()) throw httpError("This browser can't run models on the phone. Update Chrome or Safari, or use a free online brain.");
-    const info = DEVICE_MODELS.find((m) => m.model === model);
+    const info = deviceInfo(model);
     if (!info) throw httpError('Unknown on-device model');
     if (device.engine && device.model === model) return device.engine;
     if (device.loading) {
@@ -178,7 +190,7 @@
       const w = new Wllama({ default: WLLAMA_WASM }, { suppressNativeLog: true });
       const done = !!state.settings.downloaded[model];
       device.text = done ? 'Loading from your phone…' : 'Downloading (one time)…';
-      await w.loadModelFromHF({ repo: model, quant: 'Q4_K_M' }, {
+      await w.loadModelFromHF({ repo: model }, { // picks Q4_K_M, then Q8_0, then whatever the repo has
         n_ctx: 4096,
         progressCallback: ({ loaded, total }) => {
           device.progress = total ? loaded / total : 0;
@@ -429,9 +441,31 @@ ${web}
   const runOpenAI = (agent, task, provider, model, modelId) =>
     runToolLoop(agent, task, modelId, (messages, tools) => openaiChat(provider, model, messages, tools), { provider });
 
+  // Chat-only brains answer directly, without tools.
+  async function runChatOnly(agent, task, modelId, complete) {
+    const sys = `You are ${agent.name}, ${agent.role}, an AI agent in the user's Agent Station app.
+${agent.instructions || ''}
+
+You are running on a chat-only brain: you can't use tools, browse, save files or save memories in this mode. Answer directly and helpfully from what you know, and say so if something may be out of date. The user may be a beginner: keep answers clear and well organized.`;
+    const messages = [{ role: 'system', content: sys }, { role: 'user', content: preamble(agent, task.prompt, task.voice, true).replace(/\nSkills:[\s\S]*?\nMemories:/, '\nMemories:') }];
+    live[agent.id] = { ...live[agent.id], task: 'Writing an answer…' };
+    task.log.push({ ts: now(), msg: 'Chat-only brain: answering directly (no tools)' });
+    const r = await complete(messages);
+    addUsage(agent, task, r.usage, modelId);
+    return stripThink(r.choices?.[0]?.message?.content) || '(No written answer.)';
+  }
+
   async function runDevice(agent, task, model) {
     const w = await loadDevice(model);
     const noThink = /qwen3/i.test(model);
+    if (deviceInfo(model)?.tools === false) {
+      return runChatOnly(agent, task, `device:${model}`, async (messages) => {
+        const t0 = now();
+        const tick = setInterval(() => { live[agent.id] = { ...live[agent.id], task: `Thinking on your phone… ${Math.round((now() - t0) / 1000)}s` }; }, 1000);
+        try { return await w.createChatCompletion({ messages, max_tokens: 1024, temperature: 0.6 }); }
+        finally { clearInterval(tick); }
+      });
+    }
     return runToolLoop(agent, task, `device:${model}`, async (messages, tools) => {
       const msgs = noThink ? messages.map((m, i) => (i === 0 ? { ...m, content: m.content + '\n/no_think' } : m)) : messages;
       const t0 = now();
@@ -449,16 +483,18 @@ ${web}
     const { provider, model } = parseModel(modelId);
     if (provider === 'device') return runDevice(agent, task, model);
     if (provider === 'anthropic') return runClaude(agent, task, model, modelId);
+    const chatOnly = () => runChatOnly(agent, task, modelId, (messages) => openaiChat(provider, model, messages));
+    if (modelCache.models.find((m) => m.id === modelId)?.tools === false) return chatOnly();
     try { return await runOpenAI(agent, task, provider, model, modelId); }
     catch (e) {
       if (e.code !== 'no-tools') throw e;
-      // That model can't use tools: hide it and hand the task to the next tool-capable model.
+      // The provider says this model can't use tools: label it chat-only from now on.
       (state.settings.noTools ||= {})[modelId] = true; save();
       await discover(true);
+      if (agent.model === modelId) { event('info', agent.id, `${model} is chat-only; answering without tools`); return chatOnly(); }
       const next = agentModel(agent);
-      if (!next || next === modelId) throw new Error(`${model} can't use tools, and no other tool-capable model is available. Add another brain in Brain → Connect.`);
-      event('info', agent.id, `${model} can't use tools; switched to ${parseModel(next).model}`);
-      if (agent.model === modelId) { agent.model = ''; save(); }
+      if (!next || next === modelId) return chatOnly();
+      event('info', agent.id, `${model} is chat-only; switched to ${parseModel(next).model} so tools keep working`);
       return runAgent(agent, task);
     }
   }
@@ -530,7 +566,7 @@ ${web}
 
   /* ----------------------------------------------------------- status */
   const PROVIDER_INFO = [
-    { id: 'device', label: 'On this phone (open-source, offline)', free: true, setup: 'Download a Qwen model once in Set up brains (0.5–1.8 GB, use Wi-Fi). Runs on any recent phone.' },
+    { id: 'device', label: 'On this phone (free, offline)', free: true, setup: 'Download a free model once in Set up brains: Qwen, Llama, Gemma, SmolLM, DeepSeek or TinyLlama (0.5–2 GB, use Wi-Fi). Runs on any recent phone.' },
     { id: 'openrouter', label: 'OpenRouter: free online open models', free: true, setup: 'Free key at openrouter.ai → paste it in Set up brains. ":free" models cost nothing (rate-limited).' },
     { id: 'groq', label: 'Groq: fast free tier', free: true, setup: 'Free key at console.groq.com → paste it in Set up brains.' },
     { id: 'anthropic', label: 'Claude (Anthropic)', free: false, setup: 'Key from console.anthropic.com → paste it in Set up brains. Paid per use; includes real web search.' },

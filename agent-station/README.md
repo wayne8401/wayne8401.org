@@ -7,13 +7,13 @@ Open the app, choose **Run them on this phone**, and give your agents a brain:
 
 | Brain | Cost | Notes |
 |---|---|---|
-| **On-device model**: Qwen2.5 0.5B / 1.5B or Qwen3 1.7B (official GGUF builds, Apache-2.0) via [wllama](https://github.com/ngxson/wllama) (llama.cpp in the browser, MIT) | Free, private, works offline | One-time 0.5–1.8 GB download. Runs on the phone's processor in any modern browser (graphics chip used automatically when available). Native tool calling |
+| **On-device models** via [wllama](https://github.com/ngxson/wllama) (llama.cpp in the browser, MIT). 🛠 With tools: Qwen2.5 0.5B / 1.5B, Llama 3.2 1B / 3B, Qwen3 1.7B. 💬 Chat only: Gemma 3 1B, SmolLM2 1.7B, DeepSeek R1 Distill 1.5B, TinyLlama 1.1B | Free, private, works offline | One-time 0.5–2 GB download. Runs on the phone's processor in any modern browser (graphics chip used automatically when available) |
 | **OpenRouter** `:free` models | Free (rate-limited) | Paste a free key from openrouter.ai |
 | **Groq** | Free tier | Paste a free key from console.groq.com |
 | **Claude** | Paid per use | Paste a key from console.anthropic.com; adds real web search. Uses the official Anthropic SDK (`vendor/`, MIT) |
 | **Custom** OpenAI-compatible server | Free | Any https endpoint |
 
-Every brain uses tools natively; models that can't call tools are hidden automatically. Keys are stored only on the phone and sent only to that service. Keep the app open while agents work: phones pause web apps in the background, so the app keeps the screen awake during tasks. On the phone, agents have memory, skills, files, workflows, voice chat, characters, and the calculator/weather/Wikipedia plugins. MCP connectors, studio voices and voice cloning need the optional computer server (below).
+Models are labelled 🛠 (uses tools: files, memory, skills, plugins) or 💬 (chat only: answers directly). The default brain is always a 🛠 model. Keys are stored only on the phone and sent only to that service. Keep the app open while agents work: phones pause web apps in the background, so the app keeps the screen awake during tasks. On the phone, agents have memory, skills, files, workflows, voice chat, characters, and the calculator/weather/Wikipedia plugins. MCP connectors, studio voices and voice cloning need the optional computer server (below).
 
 ### Get the app onto your phone
 The app is a set of static files, so any free static host works:

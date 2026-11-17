@@ -366,6 +366,8 @@ input[type=range] { padding: 0; accent-color: var(--cyan); background: none; bor
 .dmodel p { margin: 2px 0 0; }
 .bar.dl { height: 8px; margin-top: 10px; }
 
+.dgroup { margin: 14px 2px 8px; font-weight: 650; color: var(--text); }
+
 @media (min-width: 720px) {
   body { max-width: 560px; margin: 0 auto; }
   .tabs { max-width: 536px; margin: 0 auto; }

@@ -194,6 +194,11 @@
         d.skills.unshift({ id: name, name, description: `Learned from your request: ${task.prompt.slice(0, 90)}`, instructions: `1. Re-read the request carefully.\n2. ${task.prompt}\n3. Check the result against the request before replying.`, author: agent.id, uses: 0, updatedAt: now() });
         ev('success', agent.id, `Learned skill “${name}”`);
       }
+      if (task.voice) {
+        const said = task.prompt.split('The user now says: ').pop();
+        task.result = `This is demo mode, so I'm pretending. You said: "${said.slice(0, 120)}". With a real model connected, I'd actually work on that and answer you out loud in a few short sentences.`;
+        task.status = 'done'; task.finishedAt = now(); ev('success', agent.id, 'Answered by voice'); waiters[task.id]?.(task); return;
+      }
       task.result = `**Demo result from ${agent.name}.** In live mode, ${agent.name} would really ${agent.id === 'scout' ? 'search the web, read the pages and cite sources' : agent.id === 'quill' ? 'write the full piece and save it as a file' : 'build a complete, dated plan'} for:\n\n> ${task.prompt.slice(0, 200)}\n\n**What happened**\n- Read your memories and loaded matching skills\n- Did the work in ${task.log.length} steps (see the timeline above)\n- Saved \`${fname}\` — tap it below to open\n\nConnect your own station server (⚙️ Setup) to get real results.`;
       task.status = 'done';
       task.finishedAt = now();
@@ -287,7 +292,7 @@
 
     const routes = [
       ['GET', /^status$/, () => status()],
-      ['POST', /^tasks$/, (_, b) => createTask(b.agent, b.prompt)],
+      ['POST', /^tasks$/, (_, b) => createTask(b.agent, b.prompt, { ...(b.voice ? { voice: true } : {}), ...(b.title ? { title: b.title } : {}) })],
       ['POST', /^improve-prompt$/, (_, b) => ({ prompt: improve(b.prompt || '') })],
       ['POST', /^workflows$/, (_, b) => { const wf = { id: uid('wf'), trigger: 'manual', ...b }; d.workflows.push(wf); return wf; }],
       ['DELETE', /^workflows\/(.+)$/, ([id]) => { d.workflows = d.workflows.filter((w) => w.id !== id); return { ok: true }; }],
@@ -406,7 +411,8 @@
       <form class="card composer" id="composer" data-form="task">
         <div class="h2row" style="margin:0 0 8px"><h3>Give an agent a task</h3><button type="button" class="link" data-act="lesson" data-id="prompts">How?</button></div>
         <div class="pickers" id="agentPicker" data-region="picker"></div>
-        <textarea name="prompt" id="draft" rows="5" placeholder="Describe what you want done, like you'd brief a smart helper.&#10;e.g. Find 3 cozy cafés near downtown that open before 8am, with links." maxlength="20000">${esc(ui.draft)}</textarea>
+        <div class="ta-wrap"><button type="button" class="dict-btn" data-act="dictate" aria-label="Dictate with your voice" title="Dictate">🎤</button>
+        <textarea name="prompt" id="draft" rows="5" placeholder="Describe what you want done, like you'd brief a smart helper.&#10;e.g. Find 3 cozy cafés near downtown that open before 8am, with links." maxlength="20000">${esc(ui.draft)}</textarea></div>
         <div id="coach" class="coach">${coachHtml(ui.draft)}</div>
         <div class="row">
           <button type="button" class="btn ghost" data-act="improve">✨ Improve my prompt</button>
@@ -520,6 +526,8 @@
     const statusPill = (c) => `<span class="pill s-${{ connected: 'running', connecting: 'waiting', error: 'error', off: 'idle' }[c.status] || 'idle'}">${esc(c.status)}</span>`;
     return `
       <div class="intro card"><p><b>Connect</b> gives your agents brains and hands: choose <b>AI models</b> (including free, open-source ones), switch on <b>connectors</b> to apps and services, and toggle <b>plugins</b>.</p></div>
+      <h2>Voice</h2>
+      ${voiceSettingsHtml()}
       <div class="h2row"><h2>AI models</h2><button class="link" data-act="refresh-models">↻ Refresh</button></div>
       <div class="card">
         <label class="field">Default model for all agents<select data-change="default-model">${modelOptions(S.defaultModel, false)}</select></label>
@@ -614,6 +622,7 @@
     { id: 'skills', icon: '🎓', title: 'Skills: teach once, reuse forever', time: '2 min', body: md('A **skill** is a saved playbook — steps, format and checks for a kind of task.\n\n- Ask an agent: *“Learn a skill called weekly-newsletter: …”* (try the 🎓 template)\n- Agents also save skills on their own after tasks you\'re likely to repeat\n- Or write one yourself: **Brain → Skills → Teach a skill**\n\nNext time a task fits, the agent loads the skill first — so results get more consistent over time.') },
     { id: 'free-models', icon: '🆓', title: 'Free & open-source AI models', time: '3 min', body: md('Agents don\'t have to use a paid model. Each agent can run on a different "brain":\n\n- **Ollama: 100% free and private.** Runs open models (Qwen, Llama, Mistral, Gemma, DeepSeek…) on your own computer. Install from **ollama.com**, then run `ollama pull qwen3:8b`. The station finds it automatically.\n- **OpenRouter: free hosted models.** Make a free key at openrouter.ai; models ending in **:free** cost nothing (with rate limits).\n- **Groq: very fast, free tier.** Free key at console.groq.com.\n- **LM Studio / vLLM / llama.cpp:** any OpenAI-compatible server works.\n- **Claude:** paid, but the strongest at long multi-step work.\n\n**Tips:** pick models that support **tools** (qwen3, llama3.1, mistral-small). Small local models are great for drafts and simple lookups; give hard research to bigger models. Switch on the **Step-by-step thinking** connector to help small models plan.\n\nChange models in **Brain → Connect**, or per agent by tapping it on the Station tab.') },
     { id: 'connectors', icon: '🧰', title: 'Connectors & plugins', time: '2 min', body: md('**Connectors** plug apps into your agents using **MCP**, an open standard. Switch one on in **Brain → Connect** and every agent can use its tools:\n\n- 🌐 **Web browser**: clicks around real websites\n- 🗂️ **Files**, 🕸️ **Knowledge graph**, 🕒 **Time**, 📰 **Web page reader**\n- 🐙 **GitHub** and 📒 **Notion** (need a token from your account)\n- 🔗 **Add by URL**: any remote MCP server\n\n**Plugins** are tiny built-in tools (calculator, weather, Wikipedia). Developers can add one by dropping a file into `server/plugins/`.\n\nOnly connect services you trust, and give tokens the least access they need.') },
+    { id: 'voice', icon: '🎙️', title: 'Talk to your agents', time: '1 min', body: md('Tap **🎙️** at the top of any screen (or **Talk** on an agent) and just speak.\n\n- The agent works on what you said, then **reads its answer aloud** in a few short sentences. Longer details go into a file you can open.\n- **Hands-free** keeps the conversation going: after each answer it listens again. Say **"goodbye"** to stop.\n- The **🎤** button in the task box lets you dictate a prompt instead of typing.\n- Change the language, voice and speaking speed in **Brain → Connect → Voice**.\n\nIt\'s free: your phone recognizes speech and speaks with its own voices. (Firefox users: the station can transcribe with open-source Whisper instead.)') },
     { id: 'connect', icon: '🔌', title: 'Connect real agents', time: '5 min', body: md('Demo mode is pretend. To make your agents do real work:\n\n1. Choose a brain: install **Ollama** (free, ollama.com) and run `ollama pull qwen3:8b`, **or** get a Claude key at console.anthropic.com, **or** a free OpenRouter/Groq key.\n2. On a computer with Node.js 18+, open the `agent-station/server` folder and run:\n```\nnpm install\nnpm start\n```\n(For Claude: `ANTHROPIC_API_KEY=your-key npm start`. For OpenRouter: `OPENROUTER_API_KEY=… npm start`.)\n3. Open the address it prints (on your phone, use the computer\'s Wi-Fi IP, e.g. `http://192.168.1.20:8787`).\n4. The app connects automatically. Install it: **Share → Add to Home Screen**.\n\nRunning it somewhere public? Set `STATION_TOKEN` and enter the same token in ⚙️ Settings.') },
     { id: 'safety', icon: '🛡️', title: 'Safety & costs', time: '1 min', body: md('- **Costs:** Ollama and other free models cost nothing. Claude tasks use tokens billed to your API key. The Spend tile shows an estimate. Research tasks cost more than short writing tasks.\n- **Check facts:** agents cite sources — open the links for anything important.\n- **Privacy:** don\'t paste passwords, card numbers or other people\'s private data.\n- **Stay in charge:** agents only write files inside the station; they can\'t send emails or buy things.') },
   ];
@@ -634,7 +643,7 @@
         <div><span>Memories</span><b>${S.memories.filter((m) => m.agent === a.id).length}</b></div>
       </div>
       <label class="field">🧠 AI model<select data-change="agent-model" data-id="${esc(a.id)}">${modelOptions(a.modelChosen, true)}</select></label>
-      <button class="btn" data-act="task-for" data-id="${esc(a.id)}">Give ${esc(a.name)} a task</button>
+      <div class="row"><button class="btn" data-act="task-for" data-id="${esc(a.id)}">✍️ Give a task</button><button class="btn ghost" data-act="voice-open" data-id="${esc(a.id)}">🎙️ Talk</button></div>
       ${a.instructions ? `<h2>How ${esc(a.name)} works</h2><div class="card"><p class="muted">${esc(a.instructions)}</p></div>` : ''}
       <h2>Recent tasks</h2>
       <div class="list">${tasks.map((t) => `<button class="card taskcard" data-act="task" data-id="${esc(t.id)}"><div class="wf-head"><span class="grow">${esc(t.title || t.prompt.slice(0, 70))}</span>${pill(t.status)}</div></button>`).join('') || empty('No tasks yet')}</div>
@@ -702,8 +711,12 @@
     if (sh.kind === 'task') { const t = S.tasks.find((x) => x.id === sh.id); if (!t) return closeSheet(); html = taskSheet(t); }
     if (sh.kind === 'skill') { const s = S.skills.find((x) => x.id === sh.id); if (!s) return closeSheet(); html = skillSheet(s); }
     if (sh.kind === 'builder') html = builderSheet();
+    if (sh.kind === 'voice') html = voiceSheet();
     if (sh.kind === 'events') html = `<h3>All activity</h3><div class="feed" style="margin-top:12px">${eventsHtml(S.events)}</div>`;
-    if (sh._last !== html) { $('#sheetBody').innerHTML = html; sh._last = html; }
+    if (sh._last !== html) {
+      $('#sheetBody').innerHTML = html; sh._last = html;
+      const vt = $('#sheetBody .vturns'); if (vt) vt.scrollTop = vt.scrollHeight; // newest voice turn in view
+    }
   }
   function openSheet(kind, id, html) {
     ui.sheet = { kind, id, html };
@@ -711,7 +724,7 @@
     $('.sheet-panel').scrollTop = 0;
     renderSheet();
   }
-  function closeSheet() { ui.sheet = null; $('#sheet').hidden = true; $('#sheetBody').innerHTML = ''; }
+  function closeSheet() { if (ui.sheet?.kind === 'voice') endVoice(); ui.sheet = null; $('#sheet').hidden = true; $('#sheetBody').innerHTML = ''; }
 
   /* ============================================================ render */
   const regionCache = new Map();
@@ -733,6 +746,8 @@
     const badge = $('#liveBadge');
     badge.className = 'live' + (lastErr ? ' error' : S.mode === 'demo' ? ' demo' : '');
     $('#liveText').textContent = lastErr ? 'OFFLINE' : S.mode === 'demo' ? 'DEMO' : 'LIVE';
+    voiceCheck();
+    readResultsCheck();
     const running = S.tasks.filter((t) => t.status === 'running' || t.status === 'queued').length;
     const dot = $('[data-tab=tasks] .badge');
     dot.textContent = running || ''; dot.hidden = !running;
@@ -759,6 +774,236 @@
       ta.focus();
       const m = text.match(/\[[^\]]+\]/); // jump to the first blank
       if (m) ta.setSelectionRange(m.index, m.index + m[0].length); else ta.setSelectionRange(text.length, text.length);
+    }
+  }
+
+  /* ============================================================= voice */
+  // Speech-to-text: the browser's built-in recognizer (Safari, Chrome, Edge: free,
+  // nothing to install). Fallback: record audio and let the station server
+  // transcribe it with Whisper (open-source). Text-to-speech: the device's voices.
+  const voiceCfg = Object.assign({ lang: navigator.language || 'en-US', voice: '', rate: 1, handsFree: true, readResults: false }, store.get('voice', {}));
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const canTTS = 'speechSynthesis' in window;
+  const canServerSTT = () => isServer() && !!S.voice?.stt && !!window.MediaRecorder && !!navigator.mediaDevices?.getUserMedia;
+  const canListen = () => !!SR || canServerSTT();
+  const vc = { state: 'idle', agent: '', turns: [], pending: null, interim: '', stop: null, error: '', speakId: 0 };
+  const VOICE_LANGS = [['en-US', 'English (US)'], ['en-GB', 'English (UK)'], ['es-ES', 'Español'], ['fr-FR', 'Français'], ['de-DE', 'Deutsch'], ['it-IT', 'Italiano'], ['pt-BR', 'Português (BR)'], ['nl-NL', 'Nederlands'], ['hi-IN', 'हिन्दी'], ['zh-CN', '中文'], ['ja-JP', '日本語'], ['ko-KR', '한국어'], ['ar-SA', 'العربية'], ['tl-PH', 'Filipino'], ['vi-VN', 'Tiếng Việt']];
+
+  function plainSpeech(src) {
+    let t = String(src || '')
+      .replace(/```[\s\S]*?```/g, ' ')
+      .replace(/\[([^\]]+)\]\((https?:[^)]+)\)/g, '$1')
+      .replace(/https?:\/\/\S+/g, 'a link')
+      .replace(/^\s*\|.*\|\s*$/gm, ' ')
+      .replace(/^\s*(#+|[-*•]|\d+[.)])\s+/gm, '')
+      .replace(/\*\*|__/g, '')                         // bold markers
+      .replace(/(^|[\s(])[*_](?=\S)|(?<=\S)[*_](?=[\s).,!?:;]|$)/g, '$1') // italic markers, but keep 3*4 and snake_case
+      .replace(/[`>#|]/g, '')
+      .replace(/\s+/g, ' ').trim();
+    if (t.length > 700) t = t.slice(0, 700).replace(/[^.!?]*$/, '') + ' The full answer is on your screen.';
+    return t;
+  }
+
+  function speak(text) {
+    if (!canTTS || !text) return Promise.resolve();
+    speechSynthesis.cancel();
+    const id = ++vc.speakId;
+    // Speak sentence by sentence: some browsers cut off long utterances.
+    const parts = text.match(/[^.!?]+[.!?]*\s*/g) || [text];
+    const chunks = []; let cur = '';
+    for (const p of parts) { if ((cur + p).length > 220 && cur) { chunks.push(cur); cur = ''; } cur += p; }
+    if (cur.trim()) chunks.push(cur);
+    const v = speechSynthesis.getVoices().find((x) => x.name === voiceCfg.voice);
+    return chunks.reduce((prev, chunk) => prev.then(() => new Promise((res) => {
+      if (id !== vc.speakId) return res();
+      const u = new SpeechSynthesisUtterance(chunk.trim());
+      if (v) u.voice = v;
+      u.lang = v?.lang || voiceCfg.lang; u.rate = +voiceCfg.rate || 1;
+      u.onend = u.onerror = () => res();
+      speechSynthesis.speak(u);
+    })), Promise.resolve());
+  }
+  function stopSpeaking() { vc.speakId++; if (canTTS) speechSynthesis.cancel(); }
+
+  function listen(onInterim) {
+    if (SR) {
+      return new Promise((resolve, reject) => {
+        const r = new SR();
+        r.lang = voiceCfg.lang; r.interimResults = true; r.continuous = false; r.maxAlternatives = 1;
+        let final = '';
+        r.onresult = (e) => {
+          let interim = '';
+          for (let i = e.resultIndex; i < e.results.length; i++) { const t = e.results[i][0].transcript; if (e.results[i].isFinal) final += t; else interim += t; }
+          onInterim?.((final + interim).trim());
+        };
+        r.onerror = (e) => {
+          if (e.error === 'no-speech' || e.error === 'aborted') return resolve('');
+          reject(new Error(e.error === 'not-allowed' || e.error === 'service-not-allowed' ? 'Microphone access is blocked. Allow the microphone for this site in your browser settings.' : `Speech recognition error: ${e.error}`));
+        };
+        r.onend = () => resolve(final.trim());
+        vc.stop = () => { try { r.stop(); } catch { /* already stopped */ } };
+        try { r.start(); } catch (e) { reject(e); }
+      });
+    }
+    if (canServerSTT()) return recordAndTranscribe(onInterim);
+    return Promise.reject(new Error(isServer() ? 'This browser has no speech recognition. Use Safari or Chrome, or turn on server transcription (WHISPER_URL or GROQ_API_KEY).' : 'This browser has no speech recognition. Try Safari or Chrome.'));
+  }
+
+  async function recordAndTranscribe(onInterim) {
+    let stream;
+    try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
+    catch { throw new Error('Microphone access is blocked. Allow the microphone for this site in your browser settings.'); }
+    const type = ['audio/webm', 'audio/mp4', 'audio/ogg'].find((t) => MediaRecorder.isTypeSupported?.(t)) || '';
+    const rec = new MediaRecorder(stream, type ? { mimeType: type } : undefined);
+    const chunks = [];
+    rec.ondataavailable = (e) => e.data.size && chunks.push(e.data);
+    // Stop automatically after ~1.4s of silence (or 30s max).
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const an = ctx.createAnalyser(); an.fftSize = 512;
+    ctx.createMediaStreamSource(stream).connect(an);
+    const buf = new Uint8Array(an.fftSize);
+    let spoke = false, quietSince = now(); const t0 = now();
+    const done = new Promise((res) => (rec.onstop = res));
+    const tick = setInterval(() => {
+      an.getByteTimeDomainData(buf);
+      const vol = Math.max(...buf.map((v) => Math.abs(v - 128)));
+      if (vol > 12) { spoke = true; quietSince = now(); }
+      if ((spoke && now() - quietSince > 1400) || (!spoke && now() - t0 > 7000) || now() - t0 > 30000) rec.state === 'recording' && rec.stop();
+    }, 100);
+    vc.stop = () => rec.state === 'recording' && rec.stop();
+    rec.start();
+    onInterim?.('🎙️ Listening… (stops when you pause)');
+    await done;
+    clearInterval(tick); stream.getTracks().forEach((t) => t.stop()); ctx.close();
+    if (!spoke || !chunks.length) return '';
+    onInterim?.('✍️ Transcribing…');
+    const blob = new Blob(chunks, { type: rec.mimeType || 'audio/webm' });
+    const headers = { 'Content-Type': blob.type };
+    if (cfg.token) headers.Authorization = 'Bearer ' + cfg.token;
+    const res = await fetch(apiUrl('transcribe?lang=' + encodeURIComponent(voiceCfg.lang.slice(0, 2))), { method: 'POST', headers, body: blob });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(j.error || `Transcription failed (HTTP ${res.status})`);
+    return j.text || '';
+  }
+
+  function setVoice(state, extra = {}) { Object.assign(vc, { state, ...extra }); if (ui.sheet?.kind === 'voice') renderSheet(); }
+
+  function openVoice(agentId) {
+    vc.agent = agentById(agentId)?.id || vc.agent || ui.draftAgent || S.agents[0]?.id;
+    vc.error = ''; vc.interim = '';
+    openSheet('voice');
+    if (canTTS) speechSynthesis.getVoices(); // warm up voice list
+    if (canListen()) voiceTurn(); // the tap that opened this counts as permission to use the mic
+  }
+  function endVoice() {
+    stopSpeaking(); vc.stop?.(); vc.pending = null;
+    setVoice('idle', { interim: '' });
+  }
+
+  async function voiceTurn() {
+    if (vc.state === 'listening') { vc.stop?.(); return; }
+    stopSpeaking();
+    setVoice('listening', { interim: '', error: '' });
+    let text = '';
+    try { text = await listen((t) => { vc.interim = t; if (ui.sheet?.kind === 'voice') renderSheet(); }); }
+    catch (e) { return setVoice('idle', { error: e.message }); }
+    if (ui.sheet?.kind !== 'voice') return;
+    if (!text) return setVoice('idle', { interim: '', error: "I didn't catch that. Tap the mic and try again." });
+    vc.turns.push({ who: 'you', text });
+    if (/^(stop|goodbye|bye|end( the)? chat|that'?s all|thank you,? that'?s all)[.!]?$/i.test(text.trim())) {
+      setVoice('speaking', { interim: '' });
+      vc.turns.push({ who: 'agent', text: 'Okay, talk soon!' });
+      await speak('Okay, talk soon!');
+      return setVoice('idle');
+    }
+    const history = vc.turns.slice(-7, -1).map((t) => `${t.who === 'you' ? 'User' : agentName(vc.agent)}: ${t.text}`).join('\n');
+    const prompt = (history ? `Earlier in this voice chat:\n${history}\n\nThe user now says: ` : '') + text;
+    setVoice('thinking', { interim: '' });
+    try {
+      const t = await call('POST', 'tasks', { agent: vc.agent, prompt, voice: true, title: `🎙️ ${text.slice(0, 80)}` });
+      vc.pending = t.id;
+      refresh();
+    } catch (e) { setVoice('idle', { error: e.message }); }
+  }
+
+  // Called after every refresh: when the agent finishes, read the answer aloud.
+  async function voiceCheck() {
+    if (!vc.pending) return;
+    const t = S.tasks.find((x) => x.id === vc.pending);
+    if (!t || (t.status !== 'done' && t.status !== 'error')) return;
+    vc.pending = null;
+    const reply = t.status === 'error' ? `Sorry, something went wrong. ${t.result || ''}` : plainSpeech(t.result);
+    vc.turns.push({ who: 'agent', text: reply, task: t.id });
+    setVoice('speaking');
+    await speak(reply);
+    if (ui.sheet?.kind !== 'voice' || vc.state !== 'speaking') return;
+    if (voiceCfg.handsFree && canListen()) voiceTurn(); else setVoice('idle');
+  }
+
+  function voiceSheet() {
+    const a = agentById(vc.agent) || S.agents[0] || { id: '', name: 'Agent' };
+    const label = {
+      listening: '🎙️ Listening… tap the orb when you\'re done',
+      thinking: `💭 ${esc(a.name)} is working${a.task && a.status === 'running' ? `: ${esc(a.task)}` : '…'}`,
+      speaking: `🔊 ${esc(a.name)} is answering`,
+      idle: canListen() ? 'Tap the orb and start talking' : 'Voice input isn\'t available in this browser',
+    }[vc.state];
+    return `<div class="voice">
+      <div class="wf-head"><h3 class="grow">🎙️ Voice chat</h3><select class="vagent" data-change="voice-agent" aria-label="Agent">${S.agents.map((x) => `<option value="${esc(x.id)}" ${x.id === a.id ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></div>
+      <button class="orb-btn ${vc.state}" data-act="voice-mic" aria-label="${vc.state === 'listening' ? 'Stop listening' : 'Talk'}"><span class="orb-core">${vc.state === 'speaking' ? '🔊' : vc.state === 'thinking' ? '💭' : '🎤'}</span></button>
+      <p class="vstate">${label}</p>
+      ${vc.interim ? `<p class="interim">“${esc(vc.interim)}”</p>` : ''}
+      ${vc.error ? `<p class="tiny s-error center">${esc(vc.error)}</p>` : ''}
+      <div class="vturns">${vc.turns.slice(-8).map((t) => `<div class="bubble ${t.who === 'you' ? 'you' : 'bot'}">${esc(t.text)}${t.task ? ` <button class="link tiny" data-act="task" data-id="${esc(t.task)}">details</button>` : ''}</div>`).join('') || `<p class="muted tiny center">Try: “What's a good 20-minute dinner?” or “Plan my Saturday.” Say “goodbye” to finish.</p>`}</div>
+      <div class="row vctl">
+        <label class="hf"><input type="checkbox" data-change="handsfree" ${voiceCfg.handsFree ? 'checked' : ''}> Hands-free</label>
+        ${vc.state === 'speaking' ? '<button class="btn ghost small" data-act="voice-hush">⏹ Stop talking</button>' : ''}
+        ${vc.turns.length ? '<button class="btn ghost small" data-act="voice-clear">New chat</button>' : ''}
+      </div>
+      <p class="muted tiny center">${SR ? 'Speech is recognized by your device, free.' : canServerSTT() ? `Speech is transcribed by your station (${esc(S.voice?.sttProvider || 'Whisper')}).` : ''} Replies are short so they're easy to listen to.</p>
+    </div>`;
+  }
+
+  function voiceSettingsHtml() {
+    const voices = canTTS ? speechSynthesis.getVoices() : [];
+    const sttLine = SR ? '✅ On-device speech recognition (free)' : canServerSTT() ? `✅ Station transcription: ${esc(S.voice?.sttProvider)}` : isServer() ? '⚪ No speech recognition in this browser. Use Safari/Chrome, or set WHISPER_URL / GROQ_API_KEY on the server' : '⚪ No speech recognition in this browser. Try Safari or Chrome';
+    return `<div class="card">
+      <div class="wf-head"><span class="emo">🎙️</span><div class="grow"><b>Voice chat</b><p class="muted tiny">Talk to any agent and hear it answer. Tap 🎙️ at the top of the screen.</p></div><button class="btn small" data-act="voice-open">Try it</button></div>
+      <p class="muted tiny" style="margin:10px 0 4px">${sttLine}<br>${canTTS ? '✅ Spoken replies with your device\'s voices (free)' : '⚪ This browser can\'t speak replies'}</p>
+      <label class="field">Language you speak<select data-change="voice-lang">${VOICE_LANGS.map(([k, n]) => `<option value="${k}" ${k === voiceCfg.lang ? 'selected' : ''}>${n}</option>`).join('')}${VOICE_LANGS.some(([k]) => k === voiceCfg.lang) ? '' : `<option value="${esc(voiceCfg.lang)}" selected>${esc(voiceCfg.lang)}</option>`}</select></label>
+      ${canTTS ? `<label class="field">Reply voice<select data-change="voice-voice"><option value="">Automatic</option>${voices.filter((v) => v.lang.slice(0, 2) === voiceCfg.lang.slice(0, 2)).map((v) => `<option value="${esc(v.name)}" ${v.name === voiceCfg.voice ? 'selected' : ''}>${esc(v.name)}${v.localService ? '' : ' (online)'}</option>`).join('')}</select></label>
+      <label class="field">Speaking speed: <b>${(+voiceCfg.rate).toFixed(1)}×</b><input type="range" min="0.6" max="1.6" step="0.1" value="${esc(voiceCfg.rate)}" data-change="voice-rate"></label>
+      <label class="hf"><input type="checkbox" data-change="read-results" ${voiceCfg.readResults ? 'checked' : ''}> Read every finished task aloud</label>
+      <button class="btn ghost" data-act="voice-test" style="margin-top:10px">🔊 Test voice</button>` : ''}
+    </div>`;
+  }
+
+  async function dictate() {
+    const btn = $('[data-act=dictate]');
+    if (vc.dictating) { vc.stop?.(); return; }
+    const ta = $('#draft'); if (!ta) return;
+    const base = ta.value.trim() ? ta.value.trimEnd() + ' ' : '';
+    vc.dictating = true; btn?.classList.add('rec');
+    try {
+      const text = await listen((t) => { ta.value = base + t; });
+      ta.value = base + text;
+    } catch (e) { toast(e.message, 'bad'); ta.value = base.trimEnd(); }
+    finally {
+      vc.dictating = false; $('[data-act=dictate]')?.classList.remove('rec');
+      ui.draft = ta.value; store.set('draft', ui.draft); $('#coach').innerHTML = coachHtml(ui.draft);
+    }
+  }
+
+  // Optionally read finished tasks aloud (outside voice chat).
+  const spokenTasks = new Set();
+  function readResultsCheck() {
+    for (const t of S.tasks) {
+      if (t.status !== 'done' && t.status !== 'error') continue;
+      if (!spokenTasks.has(t.id)) {
+        const fresh = t.finishedAt && now() - t.finishedAt < 15000;
+        spokenTasks.add(t.id);
+        if (voiceCfg.readResults && fresh && !t.voice && ui.sheet?.kind !== 'voice') speak(`${agentName(t.agent)} finished. ${plainSpeech(t.result)}`);
+      }
     }
   }
 
@@ -835,6 +1080,12 @@
       <label class="field">AI model<select name="model">${modelOptions('', true)}</select></label>
       <button class="btn" type="submit">Add to station</button></form>`),
     preset: (i) => { const p = ROLE_PRESETS[+i], f = $('#sheetBody form'); f.role.value = p.role; f.instructions.value = p.instructions; if (!f.name.value) f.name.focus(); },
+    'voice-open': (id) => { if (ui.sheet && ui.sheet.kind !== 'voice') closeSheet(); openVoice(id); },
+    'voice-mic': () => voiceTurn(),
+    'voice-hush': () => { stopSpeaking(); setVoice('idle'); },
+    'voice-clear': () => { endVoice(); vc.turns = []; renderSheet(); },
+    'voice-test': () => speak(`Hi! I'm ${agentName(ui.draftAgent)}. This is how I'll sound when I answer you.`),
+    dictate: () => dictate(),
     'refresh-models': () => act(() => call('POST', 'models/refresh'), 'Models refreshed'),
     'conn-enable': (id) => {
       const c = S.connectors.find((x) => x.id === id); if (!c) return;
@@ -1004,6 +1255,12 @@
   document.addEventListener('change', (e) => {
     const k = e.target.dataset?.change;
     if (k === 'default-model') act(() => call('PATCH', 'settings', { defaultModel: e.target.value }), 'Default model updated');
+    if (k === 'voice-agent') { vc.agent = e.target.value; vc.turns = []; renderSheet(); }
+    if (k === 'handsfree') { voiceCfg.handsFree = e.target.checked; store.set('voice', voiceCfg); }
+    if (k === 'read-results') { voiceCfg.readResults = e.target.checked; store.set('voice', voiceCfg); }
+    if (k === 'voice-lang') { voiceCfg.lang = e.target.value; voiceCfg.voice = ''; store.set('voice', voiceCfg); regionCache.clear(); update(); }
+    if (k === 'voice-voice') { voiceCfg.voice = e.target.value; store.set('voice', voiceCfg); speak('This is my new voice.'); }
+    if (k === 'voice-rate') { voiceCfg.rate = +e.target.value; store.set('voice', voiceCfg); regionCache.clear(); update(); }
     if (k === 'agent-model') act(() => call('PATCH', `agents/${encodeURIComponent(e.target.dataset.id)}`, { model: e.target.value }), 'Model updated');
   });
   document.addEventListener('input', (e) => {
@@ -1039,6 +1296,8 @@
     addEventListener('resize', () => { size(); if (reduce) draw(); });
     size(); draw();
   })();
+
+  if (canTTS) speechSynthesis.addEventListener?.('voiceschanged', () => { if (ui.tab === 'brain' && ui.brain === 'connect') { regionCache.clear(); update(); } });
 
   /* ============================================================== boot */
   (async function boot() {

@@ -38,6 +38,11 @@ After restarting, switch it on in the app.
 
 **Plugins** are single-file tools in `server/plugins/`. Three free ones are included: 🧮 calculator, ⛅ weather (Open-Meteo), 📚 Wikipedia. See `server/plugins/README.md` to write your own.
 
+## Voice chat
+Tap **🎙️** at the top of the app (or **Talk** on an agent) and just speak. The agent works on what you said and **reads its answer aloud** in a few short sentences; longer details go into a file. **Hands-free** mode listens again after every answer, and saying "goodbye" ends the chat. The **🎤** in the task box dictates a prompt instead of typing. Language, voice and speed are under **Brain → Connect → Voice**.
+
+It's free. Speech is recognized by your phone (Safari, Chrome, Edge) and spoken with its built-in voices. For browsers without speech recognition (e.g. Firefox), the server can transcribe with open-source **Whisper**: set `WHISPER_URL` to your own Whisper server (e.g. [Speaches](https://github.com/speaches-ai/speaches), free and private), or set `GROQ_API_KEY` to use Groq's free Whisper tier.
+
 ## What your agents can do
 - **Real work:** search the web, read pages, and save deliverables (reports, drafts, plans) as files you open in the app.
 - **Remember:** they read their memories before every task and save new facts (your preferences, decisions, results). You can view and delete these under **Brain → Memory**.
@@ -48,7 +53,7 @@ After restarting, switch it on in the app.
 - **Guided tour** on first launch (replay it from Guide or ⚙️).
 - **Templates** with `[blanks]` to fill in: research, compare, summarize a link, email, social posts, plan a goal, plan my day, remember me, teach a skill.
 - **Prompt coach** that lights up Goal / Context / Format / Done when as you type, plus **✨ Improve my prompt**, which rewrites a rough idea into a clear brief.
-- **Lessons** on agents, prompts, workflows, memory, skills, connecting real agents, and safety & costs.
+- **Lessons** on agents, prompts, workflows, memory, skills, free models, connectors, voice, connecting real agents, and safety & costs.
 - **Demo mode** that simulates everything, so you can learn before you have an API key.
 
 ## Run it for real (5 minutes)
@@ -73,6 +78,7 @@ Open the address it prints. On your phone, use your computer's Wi-Fi IP, e.g. `h
 | `OPENROUTER_API_KEY` / `GROQ_API_KEY` | none | Turn on free hosted models |
 | `OPENAI_COMPAT_URL` / `OPENAI_COMPAT_KEY` | none | Any other OpenAI-compatible server |
 | `DEFAULT_MODEL` | auto | e.g. `ollama:qwen3:8b` (you can also choose in the app) |
+| `WHISPER_URL` / `WHISPER_MODEL` | none | Your OpenAI-compatible Whisper server for voice transcription (otherwise Groq if `GROQ_API_KEY` is set) |
 | `SEARXNG_URL` | none | Your SearXNG instance for free web search (otherwise DuckDuckGo) |
 | `PORT` | `8787` | Port to listen on |
 | `STATION_TOKEN` | none | Require this token from the app. Set it if the server is reachable from the internet, and enter the same token in ⚙️ Settings |
@@ -89,4 +95,4 @@ Open the address it prints. On your phone, use your computer's Wi-Fi IP, e.g. `h
 - `index.html`, `app.js`, `styles.css`: the mobile app (no build step). `sw.js` and `manifest.webmanifest` make it installable.
 - `server/server.mjs`: runs each task as a tool-use loop (memory, skills, files, web, plugins, connectors), serves the app, and exposes an API under `/api/` that the app polls.
 - `server/providers.mjs`: Claude plus OpenAI-compatible providers (Ollama, OpenRouter, Groq, custom) and model discovery.
-- `server/connectors.mjs`: MCP client and connector catalog. `server/plugins.mjs` and `server/plugins/`: plugin loader and built-in plugins. `server/webtools.mjs`: free web search and fetch.
+- `server/connectors.mjs`: MCP client and connector catalog. `server/plugins.mjs` and `server/plugins/`: plugin loader and built-in plugins. `server/webtools.mjs`: free web search and fetch. `server/voice.mjs`: Whisper transcription for voice chat.

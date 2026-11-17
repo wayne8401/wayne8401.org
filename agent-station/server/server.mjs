@@ -18,6 +18,7 @@ import { PROVIDERS, parseModel, priceOf, discoverModels, pickDefault, openaiChat
 import { webSearch, webFetch } from './webtools.mjs';
 import { Connectors } from './connectors.mjs';
 import { loadPlugins } from './plugins.mjs';
+import { sttConfig, transcribe } from './voice.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const APP_DIR = path.resolve(HERE, '..');
@@ -300,7 +301,12 @@ How you work:
 - If the task is unclear, make a sensible assumption, state it, and proceed.`;
 }
 
-function contextPreamble(agent, text) {
+const VOICE_RULES = `This is a spoken voice conversation; your final answer will be read aloud.
+- Reply in 1–4 short, natural sentences, as if talking. No markdown, bullet lists, tables, emojis or raw URLs.
+- If the answer needs detail (lists, links, numbers), save it with write_file and say "I saved the details to a file".
+- Use tools as usual; keep report_progress messages short.`;
+
+function contextPreamble(agent, text, voice = false) {
   const skills = state.skills.map((s) => `- ${s.id}: ${s.description}`).join('\n') || '(none yet)';
   const mems = searchMemories(agent.id, text, 8);
   const recent = state.memories.filter((m) => m.scope === 'shared' || m.agent === agent.id).slice(0, 8);
@@ -313,6 +319,7 @@ ${skills}
 Memories you already have:
 ${merged.map((m) => `- ${m.fact}`).join('\n') || '(none yet)'}
 
+${voice ? `\n${VOICE_RULES}\n` : ''}
 ---
 ${text}`;
 }
@@ -354,7 +361,7 @@ async function runOpenAICompatible(agent, task, provider, model, modelId) {
   const tools = toolsFor('openai');
   const messages = [
     { role: 'system', content: systemPrompt(agent) },
-    { role: 'user', content: contextPreamble(agent, task.prompt) },
+    { role: 'user', content: contextPreamble(agent, task.prompt, task.voice) },
   ];
   let finalText = '';
   for (let turn = 0; turn < MAX_TURNS; turn++) {
@@ -383,7 +390,7 @@ async function runOpenAICompatible(agent, task, provider, model, modelId) {
 
 async function runClaude(agent, task, model, modelId) {
   const tools = toolsFor('anthropic');
-  const messages = [{ role: 'user', content: contextPreamble(agent, task.prompt) }];
+  const messages = [{ role: 'user', content: contextPreamble(agent, task.prompt, task.voice) }];
   // Server-side refusal fallbacks are available on these models (not on Haiku).
   const fallback = /^claude-(opus-5-5|sonnet-5-5|fable)/.test(model) ? { betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' } : {};
   let finalText = '';
@@ -517,6 +524,7 @@ function statusView(files) {
     mode: 'live', model: defaultModel(), defaultModel: defaultModel(), serverTime: now(),
     models: models.models, providers: Object.entries(PROVIDERS).map(([id, p]) => ({ id, label: p.label, free: p.free, setup: p.setup, ...(models.providers[id] || { ready: false, note: '' }) })),
     connectors: connectors?.view() || [],
+    voice: { stt: !!sttConfig(), sttProvider: sttConfig()?.provider || '' },
     plugins: plugins.map((p) => ({ name: p.name, label: p.label, icon: p.icon, description: p.description, enabled: pluginOn(p) })),
     stations: state.stations,
     agents: state.agents.map((a) => {
@@ -566,7 +574,10 @@ const STATIC = { 'index.html': 'text/html', 'app.js': 'text/javascript', 'styles
 
 const routes = [
   ['GET', /^\/api\/status$/, async () => statusView(await listFiles())],
-  ['POST', /^\/api\/tasks$/, async (_, b) => createTask(b.agent, b.prompt)],
+  ['POST', /^\/api\/tasks$/, async (_, b) => createTask(b.agent, b.prompt, {
+    ...(b.voice ? { voice: true } : {}),
+    ...(b.title ? { title: String(b.title).slice(0, 120) } : {}),
+  })],
   ['POST', /^\/api\/improve-prompt$/, async (_, b) => ({ prompt: await improvePrompt(String(b.prompt || '').slice(0, 4000), b.agent) })],
   ['POST', /^\/api\/workflows$/, async (_, b) => {
     const steps = (Array.isArray(b.steps) ? b.steps : []).filter((s) => agentById(s.agent) && s.instructions);
@@ -635,6 +646,11 @@ const server = http.createServer(async (req, res) => {
         const { base, full } = safeFile(decodeURIComponent(fm[1]));
         if (!fss.existsSync(full)) return send(res, 404, { error: 'No such file' }, cors);
         return send(res, 200, await fs.readFile(full), { ...cors, 'Content-Disposition': `inline; filename="${base}"` });
+      }
+      if (url.pathname === '/api/transcribe' && req.method === 'POST') {
+        const chunks = []; let size = 0;
+        for await (const c of req) { size += c.length; if (size > 25e6) return send(res, 413, { error: 'Recording too long' }, cors); chunks.push(c); }
+        return send(res, 200, await transcribe(Buffer.concat(chunks), req.headers['content-type'] || 'audio/webm', url.searchParams.get('lang') || ''), cors);
       }
       for (const [method, re, fn] of routes) {
         const m = url.pathname.match(re);

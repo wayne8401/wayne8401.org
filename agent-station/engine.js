@@ -3,7 +3,7 @@
  * No computer needed. The agent loop, tools, memory, skills, files and workflows
  * all run on this device and are saved in the browser's storage (IndexedDB).
  * The "brain" (AI model) is one of:
- *   device:<model>      an open-source model running ON the phone via WebLLM (WebGPU).
+ *   device:<model>      an open-source Qwen model running ON the phone via wllama (CPU, or GPU when available).
  *                       Free, private, works offline after the one-time download.
  *   openrouter:<model>  free hosted open models (":free"), called from the phone
  *   groq:<model>        Groq free tier, called from the phone

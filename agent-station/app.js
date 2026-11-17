@@ -105,14 +105,47 @@
     { role: 'Study tutor', instructions: 'You explain topics step by step for a beginner, use everyday analogies, and finish with 3 quick quiz questions.' },
   ];
 
+  const DEMO_MODELS = [
+    { id: 'anthropic:claude-opus-5-5', provider: 'anthropic', label: 'Claude Opus 5.5', free: false },
+    { id: 'anthropic:claude-haiku-5-5', provider: 'anthropic', label: 'Claude Haiku 5.5', free: false },
+    { id: 'ollama:qwen3:8b', provider: 'ollama', label: 'qwen3:8b (local)', free: true },
+    { id: 'ollama:llama3.1:8b', provider: 'ollama', label: 'llama3.1:8b (local)', free: true },
+    { id: 'openrouter:meta-llama/llama-3.3-70b-instruct:free', provider: 'openrouter', label: 'Llama 3.3 70B Instruct (free)', free: true },
+    { id: 'groq:llama-3.3-70b-versatile', provider: 'groq', label: 'llama-3.3-70b-versatile (Groq)', free: true },
+  ];
+  const DEMO_PROVIDERS = [
+    { id: 'anthropic', label: 'Claude (Anthropic)', free: false, ready: true, note: 'pretend: API key set', setup: 'Set ANTHROPIC_API_KEY (console.anthropic.com). Paid per token; strongest tool use and web search.' },
+    { id: 'ollama', label: 'Ollama: open models on your computer', free: true, ready: true, note: 'pretend: 2 models installed', setup: 'Free and private. Install from ollama.com, then run "ollama pull qwen3:8b".' },
+    { id: 'openrouter', label: 'OpenRouter: free hosted open models', free: true, ready: true, note: 'pretend: free models available', setup: 'Free account at openrouter.ai → set OPENROUTER_API_KEY. Models ending in ":free" cost nothing.' },
+    { id: 'groq', label: 'Groq: fast open models, free tier', free: true, ready: true, note: 'pretend: key set', setup: 'Free account at console.groq.com → set GROQ_API_KEY.' },
+    { id: 'custom', label: 'Custom OpenAI-compatible server', free: true, ready: false, note: 'Not set', setup: 'LM Studio, vLLM, llama.cpp, LocalAI, Jan: set OPENAI_COMPAT_URL (e.g. http://localhost:1234/v1).' },
+  ];
+  const DEMO_CONNECTORS = [
+    { id: 'filesystem', name: 'Files', icon: '🗂️', desc: 'Read, write, search and organize files in the station files folder.', requires: 'Node.js', needs: [] },
+    { id: 'browser', name: 'Web browser', icon: '🌐', desc: 'A real headless browser (Playwright): open sites, click, fill forms, read pages that need JavaScript.', requires: 'Node.js', needs: [] },
+    { id: 'thinking', name: 'Step-by-step thinking', icon: '🧩', desc: 'A reasoning scratchpad that helps smaller free models plan multi-step work.', requires: 'Node.js', needs: [] },
+    { id: 'knowledge-graph', name: 'Knowledge graph', icon: '🕸️', desc: 'Long-term memory of people, projects and how they relate.', requires: 'Node.js', needs: [] },
+    { id: 'fetch', name: 'Web page reader', icon: '📰', desc: 'Fetch any web page and turn it into clean text.', requires: 'Python uv', needs: [] },
+    { id: 'time', name: 'Time & time zones', icon: '🕒', desc: 'Current time anywhere and time-zone conversions.', requires: 'Python uv', needs: [] },
+    { id: 'github', name: 'GitHub', icon: '🐙', desc: 'Repos, issues, pull requests and code search via the official GitHub MCP server.', requires: 'A GitHub account', needs: [{ key: 'token', label: 'GitHub personal access token', help: 'github.com → Settings → Developer settings → Personal access tokens' }] },
+    { id: 'notion', name: 'Notion', icon: '📒', desc: 'Search, read and update your Notion pages and databases.', requires: 'Node.js + a Notion account', needs: [{ key: 'NOTION_TOKEN', label: 'Notion integration token', help: 'notion.so/profile/integrations → New integration' }] },
+    { id: 'everything', name: 'MCP test server', icon: '🧪', desc: 'Example tools for checking that connectors work.', requires: 'Node.js', needs: [] },
+  ].map((c) => ({ ...c, type: 'stdio', enabled: false, status: 'off', error: '', tools: [] }));
+  const DEMO_PLUGINS = [
+    { name: 'plugin_calculator', label: 'Calculator', icon: '🧮', description: 'Exact math so agents never guess at numbers.', enabled: true },
+    { name: 'plugin_weather', label: 'Weather', icon: '⛅', description: 'Current weather and 3-day forecast (Open-Meteo, free).', enabled: true },
+    { name: 'plugin_wikipedia', label: 'Wikipedia', icon: '📚', description: 'Short, sourced encyclopedia summaries.', enabled: true },
+  ];
+
   /* ===================================================== demo simulator */
   // A pretend station that behaves like the real server, so beginners can
   // explore tasks, workflows, memory and skills without an API key.
   const demo = (() => {
     const d = {
       stations: STATIONS.map((s) => ({ ...s })),
-      agents: AGENTS.map((a) => ({ ...a })),
+      agents: AGENTS.map((a) => ({ ...a, model: '' })),
       workflows: JSON.parse(JSON.stringify(WORKFLOWS)),
+      connectors: JSON.parse(JSON.stringify(DEMO_CONNECTORS)), plugins: DEMO_PLUGINS.map((p) => ({ ...p })), defaultModel: 'ollama:qwen3:8b',
       tasks: [], runs: [], events: [], usage: {}, files: {},
       skills: [{
         id: 'beginner-explainer', name: 'beginner-explainer', description: 'Explain any topic to a complete beginner', author: 'quill', uses: 2, updatedAt: now() - 864e5,
@@ -211,6 +244,17 @@
       return run;
     }
 
+    function connect(id) {
+      const c = d.connectors.find((x) => x.id === id);
+      Object.assign(c, { enabled: true, status: 'connecting', error: '' });
+      setTimeout(() => {
+        const tools = { filesystem: ['read_file', 'write_file', 'search_files', 'list_directory'], browser: ['browser_navigate', 'browser_click', 'browser_type', 'browser_snapshot'], github: ['search_repositories', 'list_issues', 'create_issue', 'get_pull_request'], notion: ['search', 'retrieve_page', 'create_page'], time: ['get_current_time', 'convert_time'], fetch: ['fetch'], thinking: ['sequentialthinking'], 'knowledge-graph': ['create_entities', 'search_nodes', 'read_graph'] }[id] || ['echo', 'add'];
+        Object.assign(c, { status: 'connected', tools: tools.map((name) => ({ name, description: 'Demo tool' })) });
+        ev('success', null, `Connector “${c.name}” connected with ${tools.length} tool(s)`);
+      }, 1800);
+      return { ok: true };
+    }
+
     function improve(text) {
       const t = text.trim();
       const parts = [t.endsWith('.') ? t : t + '.'];
@@ -224,13 +268,14 @@
     function status() {
       const files = Object.entries(d.files).map(([name, f]) => ({ name, size: f.content.length, updatedAt: f.updatedAt })).sort((a, b) => b.updatedAt - a.updatedAt);
       return {
-        mode: 'demo', model: 'demo',
+        mode: 'demo', model: d.defaultModel, defaultModel: d.defaultModel,
+        models: DEMO_MODELS, providers: DEMO_PROVIDERS, connectors: d.connectors, plugins: d.plugins,
         stations: d.stations,
         agents: d.agents.map((a) => {
           const running = d.tasks.find((t) => t.agent === a.id && t.status === 'running');
           const queued = d.tasks.filter((t) => t.agent === a.id && t.status === 'queued').length;
           const u = d.usage[a.id] || { tokens: 0, cost: 0 };
-          return { ...a, model: 'demo', status: running ? 'running' : queued ? 'waiting' : 'idle', task: running ? live[a.id]?.task || 'Starting…' : queued ? `${queued} task(s) queued` : 'Ready for a task', progress: running ? running.progress : 0, tokens: u.tokens, cost: u.cost };
+          return { ...a, model: a.model || d.defaultModel, modelChosen: a.model || '', status: running ? 'running' : queued ? 'waiting' : 'idle', task: running ? live[a.id]?.task || 'Starting…' : queued ? `${queued} task(s) queued` : 'Ready for a task', progress: running ? running.progress : 0, tokens: u.tokens, cost: u.cost };
         }),
         workflows: d.workflows.map((wf) => {
           const r = d.runs.find((x) => x.workflow === wf.id);
@@ -252,6 +297,14 @@
       ['DELETE', /^skills\/(.+)$/, ([id]) => { d.skills = d.skills.filter((s) => s.id !== id); return { ok: true }; }],
       ['POST', /^memories$/, (_, b) => { const m = { id: uid('mem'), ts: now(), agent: b.agent || null, scope: b.agent ? 'agent' : 'shared', fact: b.fact, source: 'you' }; d.memories.unshift(m); return m; }],
       ['DELETE', /^memories\/(.+)$/, ([id]) => { d.memories = d.memories.filter((m) => m.id !== id); return { ok: true }; }],
+      ['PATCH', /^agents\/(.+)$/, ([id], b) => { const a = d.agents.find((x) => x.id === id); if ('model' in b) { a.model = b.model; ev('info', id, `${a.name} now uses ${b.model || d.defaultModel}`); } return a; }],
+      ['PATCH', /^settings$/, (_, b) => { if (b.defaultModel) d.defaultModel = b.defaultModel; return { defaultModel: d.defaultModel }; }],
+      ['POST', /^models\/refresh$/, () => ({ count: DEMO_MODELS.length })],
+      ['POST', /^connectors\/remote$/, (_, b) => { const id = 'remote-' + slug(b.name || 'connector'); d.connectors.push({ id, name: b.name || b.url, icon: '🔗', desc: b.url, requires: 'Remote MCP server', needs: [], custom: true, type: 'http', enabled: false, status: 'off', tools: [] }); return connect(id); }],
+      ['DELETE', /^connectors\/remote\/(.+)$/, ([id]) => { d.connectors = d.connectors.filter((c) => c.id !== id); return { ok: true }; }],
+      ['POST', /^connectors\/(.+)\/(enable|retry)$/, ([id]) => connect(id)],
+      ['POST', /^connectors\/(.+)\/disable$/, ([id]) => { const c = d.connectors.find((x) => x.id === id); Object.assign(c, { enabled: false, status: 'off', tools: [] }); return { ok: true }; }],
+      ['POST', /^plugins\/(.+)$/, ([n], b) => { d.plugins.find((p) => p.name === n).enabled = !!b.enabled; return { ok: true }; }],
       ['GET', /^files\/(.+)$/, ([n]) => d.files[decodeURIComponent(n)]?.content ?? ''],
     ];
     return {
@@ -279,7 +332,7 @@
   }
 
   /* ============================================================== state */
-  const EMPTY = { stations: [], agents: [], workflows: [], tasks: [], skills: [], memories: [], events: [], files: [], mode: 'demo' };
+  const EMPTY = { stations: [], agents: [], workflows: [], tasks: [], skills: [], memories: [], events: [], files: [], models: [], providers: [], connectors: [], plugins: [], mode: 'demo' };
   let S = { ...EMPTY };
   let lastOk = 0, lastErr = '', timer = null;
   const ui = {
@@ -303,6 +356,28 @@
     clearInterval(timer);
     timer = setInterval(() => { if (!document.hidden) refresh(); }, isServer() ? Math.max(2, +cfg.interval || 3) * 1000 : 1000);
     refresh();
+  }
+
+  /* ============================================================ models */
+  const PROV_NAME = { anthropic: 'Claude', ollama: 'Ollama · local', openrouter: 'OpenRouter', groq: 'Groq', custom: 'Custom' };
+  const modelInfo = (id) => S.models.find((m) => m.id === id);
+  function shortModel(id) {
+    if (!id) return '—';
+    const m = modelInfo(id);
+    const label = m?.label || id.slice(id.indexOf(':') + 1);
+    return label.replace(/\s*\((local|free|Groq|custom)\)$/i, '');
+  }
+  const isFree = (id) => (modelInfo(id)?.free ?? !String(id).startsWith('anthropic:'));
+  const modelBadge = (id) => `<span class="mbadge ${isFree(id) ? 'free' : ''}">${isFree(id) ? 'FREE · ' : ''}${esc(shortModel(id))}</span>`;
+  function modelOptions(selected, withDefault) {
+    const groups = {};
+    for (const m of S.models) (groups[m.provider] ||= []).push(m);
+    let html = withDefault ? `<option value="" ${!selected ? 'selected' : ''}>Station default (${esc(shortModel(S.defaultModel))})</option>` : '';
+    for (const [prov, list] of Object.entries(groups)) {
+      html += `<optgroup label="${esc(PROV_NAME[prov] || prov)}${list[0].free ? ' (free)' : ''}">${list.map((m) => `<option value="${esc(m.id)}" ${m.id === selected ? 'selected' : ''}>${esc(m.label)}</option>`).join('')}</optgroup>`;
+    }
+    if (selected && !modelInfo(selected)) html += `<option value="${esc(selected)}" selected>${esc(selected)} (not available now)</option>`;
+    return html || '<option value="">No models found. See Brain → Connect</option>';
   }
 
   /* ========================================================= components */
@@ -352,7 +427,7 @@
 
     brain: () => `
       <div class="seg" id="brainTabs">
-        ${['skills', 'memory', 'files'].map((k) => `<button class="${ui.brain === k ? 'active' : ''}" data-act="brain-tab" data-id="${k}">${{ skills: '🎓 Skills', memory: '🧠 Memory', files: '📁 Files' }[k]}</button>`).join('')}
+        ${['skills', 'memory', 'files', 'connect'].map((k) => `<button class="${ui.brain === k ? 'active' : ''}" data-act="brain-tab" data-id="${k}">${{ skills: '🎓 Skills', memory: '🧠 Memory', files: '📁 Files', connect: '🔌 Connect' }[k]}</button>`).join('')}
       </div>
       <div data-region="brain"></div>`,
 
@@ -389,12 +464,12 @@
         <button class="card agent" data-act="agent" data-id="${esc(a.id)}">
           ${avatar(a)}
           <div><div class="name">${esc(a.name)} <span class="muted">· ${esc(a.role)}</span></div>
-            <div class="task">${esc(a.task || '—')}</div>${bar(a.status === 'running' ? a.progress : 0)}</div>
+            <div class="task">${esc(a.task || '—')}</div>${bar(a.status === 'running' ? a.progress : 0)}<div class="mline">${modelBadge(a.model)}</div></div>
           ${pill(a.status)}
         </button>`).join('') || empty('No agents on this station yet.');
     },
     feed: () => eventsHtml(S.events.slice(0, 6)) + (S.events.length > 6 ? '<button class="btn ghost" data-act="all-events">See all activity</button>' : ''),
-    picker: () => S.agents.map((a) => `<button type="button" class="pick ${ui.draftAgent === a.id ? 'active' : ''}" data-act="pick-agent" data-id="${esc(a.id)}">${avatar(a, 'sm')}<span>${esc(a.name)}<small>${esc(a.role)}</small></span></button>`).join(''),
+    picker: () => S.agents.map((a) => `<button type="button" class="pick ${ui.draftAgent === a.id ? 'active' : ''}" data-act="pick-agent" data-id="${esc(a.id)}">${avatar(a, 'sm')}<span>${esc(a.name)}<small>${esc(shortModel(a.model))}${isFree(a.model) ? ' · free' : ''}</small></span></button>`).join(''),
     tasks() {
       return S.tasks.map((t) => {
         const a = agentById(t.agent) || { id: t.agent, name: t.agent };
@@ -435,10 +510,46 @@
         return `<div class="intro card"><p><b>Memory</b> is what your agents know about you and past work. They read it before every task and save new facts as they go. Remove anything you don't want kept.</p><button class="btn small" data-act="add-memory">+ Tell them something</button></div>
           <div class="list" style="margin-top:10px">${S.memories.map((m) => `<div class="card mem"><div class="grow"><p>${esc(m.fact)}</p><p class="muted tiny">${m.scope === 'shared' ? '🌐 all agents' : '👤 ' + esc(agentName(m.agent))} · ${m.source === 'you' ? 'added by you' : 'learned on a task'} · ${ago(m.ts)}</p></div><button class="icon-btn" data-act="del-memory" data-id="${esc(m.id)}" aria-label="Forget">✕</button></div>`).join('') || empty('Nothing remembered yet.')}</div>`;
       }
+      if (ui.brain === 'connect') return connectHtml();
       return `<div class="intro card"><p><b>Files</b> are deliverables your agents saved: reports, drafts, plans.</p></div>
         <div class="list" style="margin-top:10px">${S.files.map((f) => `<button class="card file" data-act="file" data-id="${esc(f.name)}"><span class="emo">📄</span><div class="grow"><b>${esc(f.name)}</b><p class="muted tiny">${(f.size / 1024).toFixed(1)} KB · ${ago(f.updatedAt)}</p></div><span class="muted">›</span></button>`).join('') || empty('No files yet. Ask an agent to “save it as a file”.')}</div>`;
     },
   };
+
+  function connectHtml() {
+    const statusPill = (c) => `<span class="pill s-${{ connected: 'running', connecting: 'waiting', error: 'error', off: 'idle' }[c.status] || 'idle'}">${esc(c.status)}</span>`;
+    return `
+      <div class="intro card"><p><b>Connect</b> gives your agents brains and hands: choose <b>AI models</b> (including free, open-source ones), switch on <b>connectors</b> to apps and services, and toggle <b>plugins</b>.</p></div>
+      <div class="h2row"><h2>AI models</h2><button class="link" data-act="refresh-models">↻ Refresh</button></div>
+      <div class="card">
+        <label class="field">Default model for all agents<select data-change="default-model">${modelOptions(S.defaultModel, false)}</select></label>
+        <p class="muted tiny" style="margin:0">Each agent can use a different model. Open an agent on the Station tab to change it. Free models cost nothing to run.</p>
+      </div>
+      <div class="list" style="margin-top:10px">${S.providers.map((p) => `
+        <div class="card prov ${p.ready ? 'ready' : ''}">
+          <div class="wf-head"><span class="emo">${p.ready ? '✅' : '⚪'}</span><div class="grow"><b>${esc(p.label)}</b>${p.free ? ' <span class="mbadge free">FREE</span>' : ''}<p class="muted tiny">${esc(p.note || '')}</p></div></div>
+          ${p.ready ? '' : `<p class="muted tiny setup">How to turn on: ${esc(p.setup)}</p>`}
+        </div>`).join('')}</div>
+      <div class="h2row"><h2>Connectors</h2><button class="link" data-act="add-remote">+ Add by URL</button></div>
+      <p class="muted tiny" style="margin:-4px 2px 10px">Open-source MCP connectors. Switch one on and every agent can use its tools.</p>
+      <div class="list">${S.connectors.map((c) => `
+        <div class="card conn">
+          <div class="wf-head"><span class="emo">${c.icon || '🔌'}</span><div class="grow"><b>${esc(c.name)}</b><p class="muted tiny">${esc(c.desc)}</p></div>${statusPill(c)}</div>
+          <p class="muted tiny" style="margin:8px 0 0">${c.needs?.length ? '🔑 Needs: ' + c.needs.map((n) => esc(n.label)).join(', ') + ' · ' : '🆓 No account needed · '}Requires: ${esc(c.requires || '')}</p>
+          ${c.error ? `<p class="tiny s-error" style="margin:6px 0 0">${esc(c.error)}</p>` : ''}
+          <div class="row" style="margin-top:10px">
+            ${c.enabled ? `<button class="btn ghost" data-act="conn-disable" data-id="${esc(c.id)}">Switch off</button>` : `<button class="btn" data-act="conn-enable" data-id="${esc(c.id)}">Switch on</button>`}
+            ${c.status === 'connected' ? `<button class="btn ghost" data-act="conn-tools" data-id="${esc(c.id)}">${c.tools.length} tools</button>` : ''}
+            ${c.status === 'error' ? `<button class="btn ghost" data-act="conn-retry" data-id="${esc(c.id)}">Retry</button>` : ''}
+            ${c.custom ? `<button class="btn ghost narrow" data-act="del-remote" data-id="${esc(c.id)}" aria-label="Remove">🗑</button>` : ''}
+          </div>
+        </div>`).join('') || empty('Connectors appear when connected to a station server.')}</div>
+      <h2>Plugins</h2>
+      <p class="muted tiny" style="margin:-4px 2px 10px">Small built-in tools. Add your own: drop a file in <code>server/plugins/</code>.</p>
+      <div class="list">${S.plugins.map((p) => `
+        <div class="card mem"><span class="emo">${p.icon}</span><div class="grow"><b>${esc(p.label)}</b><p class="muted tiny">${esc(p.description)}</p></div>
+          <button class="toggle ${p.enabled ? 'on' : ''}" data-act="plugin-toggle" data-id="${esc(p.name)}" role="switch" aria-checked="${p.enabled}" aria-label="${esc(p.label)}"><i></i></button></div>`).join('') || empty('No plugins loaded.')}</div>`;
+  }
 
   function greeting() {
     const h = new Date().getHours();
@@ -501,8 +612,10 @@
     { id: 'flows', icon: '🔗', title: 'Workflows: agents as a team', time: '2 min', body: md('A workflow is a list of steps. Each step names an **agent** and its **instructions**. When you press **Run**, step 1 starts; its result is passed to step 2, and so on.\n\nTry the built-in **Research → Brief**: Scout researches, Quill writes it up.\n\nTo build your own: **Flows → + New workflow**, add steps, and give it a default input (the topic or goal). Good workflows have 2–4 small steps, each with one clear job.') },
     { id: 'memory', icon: '🧠', title: 'Memory: agents that know you', time: '1 min', body: md('Before every task, agents read what they remember about you. They save new facts as they work — your preferences, decisions, results.\n\n- Teach them directly: **Brain → Memory → Tell them something**, or send a task like “Remember that I prefer short answers.”\n- **All agents** memories are shared; others belong to one agent.\n- You are in control: remove anything with ✕.\n\nNever share passwords or card numbers — agents are told not to store secrets, but don\'t give them any.') },
     { id: 'skills', icon: '🎓', title: 'Skills: teach once, reuse forever', time: '2 min', body: md('A **skill** is a saved playbook — steps, format and checks for a kind of task.\n\n- Ask an agent: *“Learn a skill called weekly-newsletter: …”* (try the 🎓 template)\n- Agents also save skills on their own after tasks you\'re likely to repeat\n- Or write one yourself: **Brain → Skills → Teach a skill**\n\nNext time a task fits, the agent loads the skill first — so results get more consistent over time.') },
-    { id: 'connect', icon: '🔌', title: 'Connect real agents', time: '5 min', body: md('Demo mode is pretend. To make your agents do real work:\n\n1. Get an API key at **console.anthropic.com**.\n2. On a computer with Node.js 18+, open the `agent-station/server` folder and run:\n```\nnpm install\nANTHROPIC_API_KEY=your-key npm start\n```\n3. Open the address it prints (on your phone, use the computer\'s Wi-Fi IP, e.g. `http://192.168.1.20:8787`).\n4. The app connects automatically. Install it: **Share → Add to Home Screen**.\n\nRunning it somewhere public? Set `STATION_TOKEN` and enter the same token in ⚙️ Settings.') },
-    { id: 'safety', icon: '🛡️', title: 'Safety & costs', time: '1 min', body: md('- **Costs:** real tasks use tokens, billed to your API key. The Spend tile shows an estimate. Research tasks cost more than short writing tasks.\n- **Check facts:** agents cite sources — open the links for anything important.\n- **Privacy:** don\'t paste passwords, card numbers or other people\'s private data.\n- **Stay in charge:** agents only write files inside the station; they can\'t send emails or buy things.') },
+    { id: 'free-models', icon: '🆓', title: 'Free & open-source AI models', time: '3 min', body: md('Agents don\'t have to use a paid model. Each agent can run on a different "brain":\n\n- **Ollama: 100% free and private.** Runs open models (Qwen, Llama, Mistral, Gemma, DeepSeek…) on your own computer. Install from **ollama.com**, then run `ollama pull qwen3:8b`. The station finds it automatically.\n- **OpenRouter: free hosted models.** Make a free key at openrouter.ai; models ending in **:free** cost nothing (with rate limits).\n- **Groq: very fast, free tier.** Free key at console.groq.com.\n- **LM Studio / vLLM / llama.cpp:** any OpenAI-compatible server works.\n- **Claude:** paid, but the strongest at long multi-step work.\n\n**Tips:** pick models that support **tools** (qwen3, llama3.1, mistral-small). Small local models are great for drafts and simple lookups; give hard research to bigger models. Switch on the **Step-by-step thinking** connector to help small models plan.\n\nChange models in **Brain → Connect**, or per agent by tapping it on the Station tab.') },
+    { id: 'connectors', icon: '🧰', title: 'Connectors & plugins', time: '2 min', body: md('**Connectors** plug apps into your agents using **MCP**, an open standard. Switch one on in **Brain → Connect** and every agent can use its tools:\n\n- 🌐 **Web browser**: clicks around real websites\n- 🗂️ **Files**, 🕸️ **Knowledge graph**, 🕒 **Time**, 📰 **Web page reader**\n- 🐙 **GitHub** and 📒 **Notion** (need a token from your account)\n- 🔗 **Add by URL**: any remote MCP server\n\n**Plugins** are tiny built-in tools (calculator, weather, Wikipedia). Developers can add one by dropping a file into `server/plugins/`.\n\nOnly connect services you trust, and give tokens the least access they need.') },
+    { id: 'connect', icon: '🔌', title: 'Connect real agents', time: '5 min', body: md('Demo mode is pretend. To make your agents do real work:\n\n1. Choose a brain: install **Ollama** (free, ollama.com) and run `ollama pull qwen3:8b`, **or** get a Claude key at console.anthropic.com, **or** a free OpenRouter/Groq key.\n2. On a computer with Node.js 18+, open the `agent-station/server` folder and run:\n```\nnpm install\nnpm start\n```\n(For Claude: `ANTHROPIC_API_KEY=your-key npm start`. For OpenRouter: `OPENROUTER_API_KEY=… npm start`.)\n3. Open the address it prints (on your phone, use the computer\'s Wi-Fi IP, e.g. `http://192.168.1.20:8787`).\n4. The app connects automatically. Install it: **Share → Add to Home Screen**.\n\nRunning it somewhere public? Set `STATION_TOKEN` and enter the same token in ⚙️ Settings.') },
+    { id: 'safety', icon: '🛡️', title: 'Safety & costs', time: '1 min', body: md('- **Costs:** Ollama and other free models cost nothing. Claude tasks use tokens billed to your API key. The Spend tile shows an estimate. Research tasks cost more than short writing tasks.\n- **Check facts:** agents cite sources — open the links for anything important.\n- **Privacy:** don\'t paste passwords, card numbers or other people\'s private data.\n- **Stay in charge:** agents only write files inside the station; they can\'t send emails or buy things.') },
   ];
 
   /* ============================================================= sheets */
@@ -520,6 +633,7 @@
         <div><span>Skills learned</span><b>${skills.length}</b></div>
         <div><span>Memories</span><b>${S.memories.filter((m) => m.agent === a.id).length}</b></div>
       </div>
+      <label class="field">🧠 AI model<select data-change="agent-model" data-id="${esc(a.id)}">${modelOptions(a.modelChosen, true)}</select></label>
       <button class="btn" data-act="task-for" data-id="${esc(a.id)}">Give ${esc(a.name)} a task</button>
       ${a.instructions ? `<h2>How ${esc(a.name)} works</h2><div class="card"><p class="muted">${esc(a.instructions)}</p></div>` : ''}
       <h2>Recent tasks</h2>
@@ -609,10 +723,11 @@
   }
   function update() {
     for (const el of $$('#view [data-region]')) {
+      if (el.contains(document.activeElement) && /^(SELECT|INPUT|TEXTAREA)$/.test(document.activeElement.tagName)) continue; // don't yank a control the user is using
       const html = REGIONS[el.dataset.region]?.() ?? '';
       if (regionCache.get(el) !== html) { el.innerHTML = html; regionCache.set(el, html); }
     }
-    const typing = document.activeElement?.closest?.('#sheetBody form');
+    const typing = document.activeElement?.closest?.('#sheetBody form') || (document.activeElement?.tagName === 'SELECT' && document.activeElement.closest('#sheetBody'));
     if (ui.sheet && !typing) renderSheet();
     $('#sourceLabel').textContent = S.mode === 'demo' ? 'Demo mode' : (() => { try { return cfg.base ? new URL(cfg.base).host : location.host; } catch { return 'My station'; } })();
     const badge = $('#liveBadge');
@@ -717,8 +832,32 @@
       <label class="field">Role<input name="role" maxlength="60" placeholder="e.g. Customer support helper"></label>
       <label class="field">Station<select name="station">${S.stations.map((s) => `<option value="${esc(s.id)}">${esc(s.name)}</option>`).join('')}</select></label>
       <label class="field">How should it work?<textarea name="instructions" rows="4" placeholder="You help me… Always… Never…"></textarea></label>
+      <label class="field">AI model<select name="model">${modelOptions('', true)}</select></label>
       <button class="btn" type="submit">Add to station</button></form>`),
     preset: (i) => { const p = ROLE_PRESETS[+i], f = $('#sheetBody form'); f.role.value = p.role; f.instructions.value = p.instructions; if (!f.name.value) f.name.focus(); },
+    'refresh-models': () => act(() => call('POST', 'models/refresh'), 'Models refreshed'),
+    'conn-enable': (id) => {
+      const c = S.connectors.find((x) => x.id === id); if (!c) return;
+      if (!c.needs?.length) return act(() => call('POST', `connectors/${encodeURIComponent(id)}/enable`, {}), `Connecting ${c.name}…`);
+      openSheet('form', null, `<form data-form="conn" data-id="${esc(id)}"><h3>${c.icon} Connect ${esc(c.name)}</h3><p class="muted">${esc(c.desc)}</p>
+        ${c.needs.map((n) => `<label class="field">${esc(n.label)}<input name="${esc(n.key)}" type="password" autocomplete="off" required></label><p class="muted tiny" style="margin:-8px 0 12px">Where to get it: ${esc(n.help || '')}</p>`).join('')}
+        <p class="muted tiny">Stored only on your station server (never in this app). Give it the least access it needs.</p>
+        <button class="btn" type="submit">Connect</button></form>`);
+    },
+    'conn-disable': (id) => act(() => call('POST', `connectors/${encodeURIComponent(id)}/disable`), 'Switched off'),
+    'conn-retry': (id) => act(() => call('POST', `connectors/${encodeURIComponent(id)}/retry`), 'Retrying…'),
+    'conn-tools': (id) => {
+      const c = S.connectors.find((x) => x.id === id); if (!c) return;
+      openSheet('form', null, `<h3>${c.icon} ${esc(c.name)}: ${c.tools.length} tools</h3><p class="muted">Agents pick these automatically when a task needs them.</p><div class="card">${md(c.tools.map((t) => `- **${t.name}**${t.description ? ': ' + t.description : ''}`).join('\n'))}</div>`);
+    },
+    'add-remote': () => openSheet('form', null, `<form data-form="remote"><h3>🔗 Add a connector by URL</h3><p class="muted">Any remote MCP server (Streamable HTTP), e.g. one from your favourite app or a self-hosted tool.</p>
+      <label class="field">Name<input name="name" required maxlength="40" placeholder="e.g. My CRM"></label>
+      <label class="field">Server URL<input name="url" type="url" required placeholder="https://example.com/mcp"></label>
+      <label class="field">Access token (optional)<input name="token" type="password" autocomplete="off"></label>
+      <p class="muted tiny">Only connect servers you trust: agents will be able to use every tool they offer.</p>
+      <button class="btn" type="submit">Add connector</button></form>`),
+    'del-remote': (id) => { if (confirm('Remove this connector?')) act(() => call('DELETE', `connectors/remote/${encodeURIComponent(id)}`), 'Removed'); },
+    'plugin-toggle': (name) => { const p = S.plugins.find((x) => x.name === name); act(() => call('POST', `plugins/${encodeURIComponent(name)}`, { enabled: !p.enabled }), `${p.label} ${p.enabled ? 'off' : 'on'}`); },
     settings: () => openSheet('form', null, settingsSheet()),
     tour: () => { closeSheet(); startTour(); },
     close: () => closeSheet(),
@@ -758,7 +897,7 @@
       if (ok) { closeSheet(); if (ui.tab !== 'flows') go('flows'); }
     },
     async agent(f) {
-      const ok = await act(() => call('POST', 'agents', { name: f.name.value.trim(), role: f.role.value.trim(), station: f.station.value, instructions: f.instructions.value.trim() }), 'Agent added 🎉');
+      const ok = await act(() => call('POST', 'agents', { name: f.name.value.trim(), role: f.role.value.trim(), station: f.station.value, instructions: f.instructions.value.trim(), model: f.model.value }), 'Agent added 🎉');
       if (ok) closeSheet();
     },
     async skill(f) {
@@ -767,6 +906,16 @@
     },
     async memory(f) {
       const ok = await act(() => call('POST', 'memories', { fact: f.fact.value.trim(), agent: f.agent.value || null }), 'Remembered 🧠');
+      if (ok) closeSheet();
+    },
+    async conn(f) {
+      const id = f.dataset.id, secrets = {};
+      $$('input', f).forEach((i) => { secrets[i.name] = i.value.trim(); });
+      const ok = await act(() => call('POST', `connectors/${encodeURIComponent(id)}/enable`, { secrets }), 'Connecting…');
+      if (ok) closeSheet();
+    },
+    async remote(f) {
+      const ok = await act(() => call('POST', 'connectors/remote', { name: f.name.value.trim(), url: f.url.value.trim(), token: f.token.value.trim() }), 'Connector added');
       if (ok) closeSheet();
     },
     async settings(f) {
@@ -791,7 +940,7 @@
     { tab: 'tasks', target: '#templates', title: 'Templates', text: 'Not sure what to write? Tap a template, then replace the [brackets] with your details.' },
     { tab: 'tasks', target: '#coach', title: 'Prompt coach', text: 'Lights up as your prompt gets clearer: Goal, Context, Format, Done when. “✨ Improve my prompt” rewrites a rough idea for you.' },
     { tab: 'flows', target: '#flowList .card', title: 'Workflows', text: 'Teams of agents working in order — each step hands its result to the next. Press Run to try one, or build your own.' },
-    { tab: 'brain', target: '#brainTabs', title: 'The Brain', text: 'Skills = playbooks agents learned. Memory = what they know about you. Files = their deliverables. Everything here is yours to edit.' },
+    { tab: 'brain', target: '#brainTabs', title: 'The Brain', text: 'Skills = playbooks agents learned. Memory = what they know about you. Files = their deliverables. Connect = choose AI models (free ones too), connectors and plugins.' },
     { tab: 'guide', target: '#lessons', title: 'Lessons', text: 'Short lessons for every feature, including how to connect real agents. You can replay this tour from here anytime.' },
     { title: 'You are ready! 🚀', text: 'Try your first task now — pick a template, fill in the blanks, and send it.', cta: 'Give my first task' },
   ];
@@ -851,6 +1000,11 @@
     if (!f) return;
     e.preventDefault();
     FORMS[f.dataset.form]?.(f);
+  });
+  document.addEventListener('change', (e) => {
+    const k = e.target.dataset?.change;
+    if (k === 'default-model') act(() => call('PATCH', 'settings', { defaultModel: e.target.value }), 'Default model updated');
+    if (k === 'agent-model') act(() => call('PATCH', `agents/${encodeURIComponent(e.target.dataset.id)}`, { model: e.target.value }), 'Model updated');
   });
   document.addEventListener('input', (e) => {
     if (e.target.id === 'draft') { ui.draft = e.target.value; store.set('draft', ui.draft); $('#coach').innerHTML = coachHtml(ui.draft); }

@@ -3,13 +3,16 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Runs your Agent Station agents on Claude: tasks, workflows, memory and skills.",
+  "description": "Runs Agent Station agents on Claude or free open-source models, with MCP connectors and plugins.",
   "scripts": {
     "start": "node server.mjs",
     "check": "node --check server.mjs"
   },
-  "engines": { "node": ">=18" },
+  "engines": {
+    "node": ">=18"
+  },
   "dependencies": {
-    "@anthropic-ai/sdk": "^1.9.0"
+    "@anthropic-ai/sdk": "^1.9.0",
+    "@modelcontextprotocol/sdk": "^1.32.2"
   }
 }

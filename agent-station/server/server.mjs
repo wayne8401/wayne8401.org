@@ -14,6 +14,10 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import Anthropic from '@anthropic-ai/sdk';
+import { PROVIDERS, parseModel, priceOf, discoverModels, pickDefault, openaiChat } from './providers.mjs';
+import { webSearch, webFetch } from './webtools.mjs';
+import { Connectors } from './connectors.mjs';
+import { loadPlugins } from './plugins.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const APP_DIR = path.resolve(HERE, '..');
@@ -23,14 +27,12 @@ const STATE_FILE = path.join(DATA_DIR, 'state.json');
 
 const PORT = +process.env.PORT || 8787;
 const HOST = process.env.HOST || '0.0.0.0';
-const MODEL = process.env.AGENT_MODEL || 'claude-opus-5-5';
 const EFFORT = process.env.AGENT_EFFORT || 'medium';
 const TOKEN = process.env.STATION_TOKEN || '';          // optional: require "Authorization: Bearer <token>"
-const PRICE_IN = +process.env.PRICE_IN_PER_M || 4;      // USD per 1M input tokens (claude-opus-5-5)
-const PRICE_OUT = +process.env.PRICE_OUT_PER_M || 20;   // USD per 1M output tokens
 const MAX_TURNS = +process.env.MAX_TURNS || 30;         // safety cap on tool-use rounds per task
 
-const client = new Anthropic(); // reads ANTHROPIC_API_KEY (or an `ant auth login` profile)
+let _anthropic = null; // created on first use so the server runs fine without a Claude key
+const anthropic = () => (_anthropic ||= new Anthropic());
 
 /* ------------------------------------------------------------------ state */
 
@@ -83,6 +85,7 @@ const DEFAULT_STATE = () => ({
   memories: [],
   events: [],
   usage: {},
+  settings: { defaultModel: '', plugins: {} },
 });
 
 let state = DEFAULT_STATE();
@@ -120,42 +123,67 @@ const slug = (s) => String(s).toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').r
 
 /* ------------------------------------------------------------------ tools */
 
-// Tools the agents can call. web_search / web_fetch run on Anthropic's servers;
-// the rest run here, against this server's ./data folder.
-const strictTool = (name, description, properties, required = Object.keys(properties)) => ({
-  name, description, strict: true,
-  input_schema: { type: 'object', properties, required, additionalProperties: false },
-});
+// Built-in tools every agent gets, in a neutral shape { name, description, parameters }.
+// Claude additionally gets Anthropic's server-side web_search / web_fetch; other
+// models get the free local versions from webtools.mjs. Connectors (MCP) and
+// plugins add more tools at runtime.
+const obj = (properties, required = Object.keys(properties)) => ({ type: 'object', properties, required, additionalProperties: false });
 
-const TOOLS = [
-  { type: 'web_search_20260209', name: 'web_search', max_uses: 8 },
-  { type: 'web_fetch_20260209', name: 'web_fetch', max_uses: 8 },
-  strictTool('report_progress', 'Tell the user what you are doing right now. Call it when you start, at each milestone, and before finishing. Shown live in the mobile app.', {
+const CORE_TOOLS = [
+  { name: 'report_progress', description: 'Tell the user what you are doing right now. Call it when you start, at each milestone, and before finishing. Shown live in the mobile app.', parameters: obj({
     message: { type: 'string', description: 'Short status, e.g. "Comparing 4 laptop reviews"' },
     percent: { type: 'integer', description: 'Rough completion 0-100' },
-  }),
-  strictTool('remember', 'Save a durable fact for future tasks: user preferences, decisions, names, outcomes, things that worked. Never store passwords, keys or other secrets.', {
+  }) },
+  { name: 'remember', description: 'Save a durable fact for future tasks: user preferences, decisions, names, outcomes, things that worked. Never store passwords, keys or other secrets.', parameters: obj({
     fact: { type: 'string' },
     scope: { type: 'string', enum: ['agent', 'shared'], description: '"agent" = only you, "shared" = every agent on the station' },
-  }),
-  strictTool('recall', 'Search saved memories by keywords. Use it at the start of a task to pick up what you already know about the user or topic.', {
-    query: { type: 'string' },
-  }),
-  strictTool('save_skill', 'Learn a skill: save a reusable playbook so you (or any agent) can repeat this kind of task well next time. Use when the user asks you to learn something, or after finishing a task they will likely repeat. Saving an existing name updates it.', {
+  }) },
+  { name: 'recall', description: 'Search saved memories by keywords. Use it at the start of a task to pick up what you already know about the user or topic.', parameters: obj({ query: { type: 'string' } }) },
+  { name: 'save_skill', description: 'Learn a skill: save a reusable playbook so you (or any agent) can repeat this kind of task well next time. Use when the user asks you to learn something, or after finishing a task they will likely repeat. Saving an existing name updates it.', parameters: obj({
     name: { type: 'string', description: 'Short, e.g. "weekly-newsletter"' },
     description: { type: 'string', description: 'One line: when to use this skill' },
     instructions: { type: 'string', description: 'Numbered steps, tips, output format, and quality checks' },
-  }),
-  strictTool('use_skill', 'Load the full instructions of a saved skill before doing a task it covers.', {
-    name: { type: 'string' },
-  }),
-  strictTool('write_file', 'Save a deliverable (report, email draft, plan, CSV...) to the station\'s files. The user can open and download it from the app. Overwrites a file with the same name.', {
+  }) },
+  { name: 'use_skill', description: 'Load the full instructions of a saved skill before doing a task it covers.', parameters: obj({ name: { type: 'string' } }) },
+  { name: 'write_file', description: "Save a deliverable (report, email draft, plan, CSV...) to the station's files. The user can open and download it from the app. Overwrites a file with the same name.", parameters: obj({
     filename: { type: 'string', description: 'e.g. "laptop-brief.md"' },
     content: { type: 'string' },
-  }),
-  strictTool('read_file', 'Read a file from the station\'s files.', { filename: { type: 'string' } }),
-  strictTool('list_files', 'List the station\'s saved files.', {}),
+  }) },
+  { name: 'read_file', description: "Read a file from the station's files.", parameters: obj({ filename: { type: 'string' } }) },
+  { name: 'list_files', description: "List the station's saved files.", parameters: obj({}) },
 ];
+
+const LOCAL_WEB_TOOLS = [
+  { name: 'web_search', description: 'Search the web. Returns titles, links and snippets. Follow up with web_fetch to read a page.', parameters: obj({ query: { type: 'string' } }) },
+  { name: 'web_fetch', description: 'Read a web page (public http/https links) as plain text.', parameters: obj({ url: { type: 'string' } }) },
+];
+
+let plugins = [];      // loaded from ./plugins and DATA_DIR/plugins
+let connectors = null; // MCP connector manager
+let models = { models: [], providers: {} };
+
+const pluginOn = (p) => state.settings.plugins[p.name] !== false; // plugins are on unless switched off
+const defaultModel = () => state.settings.defaultModel || pickDefault(models.models);
+const agentModel = (a) => a.model || defaultModel();
+
+function extraToolDefs() {
+  return [
+    ...plugins.filter(pluginOn).map((p) => ({ name: p.name, description: `[${p.label} plugin] ${p.description}`, parameters: p.parameters })),
+    ...(connectors?.toolDefs() || []),
+  ];
+}
+
+function toolsFor(kind) {
+  if (kind === 'anthropic') {
+    return [
+      { type: 'web_search_20260209', name: 'web_search', max_uses: 8 },
+      { type: 'web_fetch_20260209', name: 'web_fetch', max_uses: 8 },
+      ...CORE_TOOLS.map((t) => ({ name: t.name, description: t.description, input_schema: t.parameters, strict: true })),
+      ...extraToolDefs().map((t) => ({ name: t.name, description: t.description, input_schema: t.parameters })),
+    ];
+  }
+  return [...CORE_TOOLS, ...LOCAL_WEB_TOOLS, ...extraToolDefs()].map((t) => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.parameters } }));
+}
 
 function safeFile(name) {
   const base = path.basename(String(name || '')).replace(/[^\w.\- ]+/g, '_').slice(0, 120);
@@ -240,8 +268,18 @@ async function runTool(name, input, ctx) {
       const files = await listFiles();
       return files.length ? files.map((f) => `${f.name} (${f.size} bytes)`).join('\n') : 'No files yet.';
     }
-    default:
+    case 'web_search':
+      event('info', agent.id, `Searching the web: ${String(input.query).slice(0, 80)}`);
+      return webSearch(input.query);
+    case 'web_fetch':
+      event('info', agent.id, `Reading ${String(input.url).slice(0, 100)}`);
+      return webFetch(input.url);
+    default: {
+      const plugin = plugins.find((p) => p.name === name && pluginOn(p));
+      if (plugin) { event('info', agent.id, `Using ${plugin.label} plugin`); return String(await plugin.run(input, { agent, task })); }
+      if (connectors?.has(name)) { event('info', agent.id, `Using connector tool ${name.replace(/^mcp_/, '')}`); return connectors.call(name, input); }
       throw new Error(`Unknown tool ${name}`);
+    }
   }
 }
 
@@ -279,32 +317,87 @@ ${merged.map((m) => `- ${m.fact}`).join('\n') || '(none yet)'}
 ${text}`;
 }
 
-function addUsage(agent, task, usage) {
+function addUsage(agent, task, usage, modelId) {
   if (!usage) return;
-  const input = (usage.input_tokens || 0) + (usage.cache_creation_input_tokens || 0) + (usage.cache_read_input_tokens || 0);
-  const output = usage.output_tokens || 0;
-  const cost = ((usage.input_tokens || 0) + (usage.cache_creation_input_tokens || 0) * 1.25 + (usage.cache_read_input_tokens || 0) * 0.1) / 1e6 * PRICE_IN + output / 1e6 * PRICE_OUT;
+  const [PRICE_IN, PRICE_OUT] = priceOf(modelId);
+  // Anthropic reports input_tokens/output_tokens; OpenAI-compatible servers report prompt_tokens/completion_tokens.
+  const plainIn = usage.input_tokens ?? usage.prompt_tokens ?? 0;
+  const input = plainIn + (usage.cache_creation_input_tokens || 0) + (usage.cache_read_input_tokens || 0);
+  const output = usage.output_tokens ?? usage.completion_tokens ?? 0;
+  const cost = (plainIn + (usage.cache_creation_input_tokens || 0) * 1.25 + (usage.cache_read_input_tokens || 0) * 0.1) / 1e6 * PRICE_IN + output / 1e6 * PRICE_OUT;
   const u = (state.usage[agent.id] ||= { tokens: 0, cost: 0 });
   u.tokens += input + output; u.cost += cost;
   task.tokens = (task.tokens || 0) + input + output; task.cost = (task.cost || 0) + cost;
 }
 
 async function runAgent(agent, task) {
-  const messages = [{ role: 'user', content: contextPreamble(agent, task.prompt) }];
+  const modelId = agentModel(agent);
+  const { provider, model } = parseModel(modelId);
+  task.model = modelId;
+  if (PROVIDERS[provider]?.kind === 'openai') return runOpenAICompatible(agent, task, provider, model, modelId);
+  return runClaude(agent, task, model, modelId);
+}
+
+async function runTools(toolCalls, ctx) {
+  // toolCalls: [{ id, name, input }] -> [{ id, content, isError }]
+  const out = [];
+  for (const tc of toolCalls) {
+    try { out.push({ id: tc.id, content: String(await runTool(tc.name, tc.input || {}, ctx)) }); }
+    catch (e) { out.push({ id: tc.id, content: `Error: ${e.message}`, isError: true }); }
+  }
+  save();
+  return out;
+}
+
+// Free / open models through an OpenAI-compatible chat API (Ollama, OpenRouter, Groq, LM Studio...).
+async function runOpenAICompatible(agent, task, provider, model, modelId) {
+  const tools = toolsFor('openai');
+  const messages = [
+    { role: 'system', content: systemPrompt(agent) },
+    { role: 'user', content: contextPreamble(agent, task.prompt) },
+  ];
   let finalText = '';
   for (let turn = 0; turn < MAX_TURNS; turn++) {
-    const response = await client.beta.messages.create({
-      model: MODEL,
+    const r = await openaiChat(provider, model, messages, tools);
+    addUsage(agent, task, r.usage, modelId);
+    const msg = r.choices[0].message || {};
+    const text = (msg.content || '').replace(/<think>[\s\S]*?<\/think>/g, '').trim(); // hide reasoning tags some open models emit
+    if (text) finalText = text;
+    const calls = (msg.tool_calls || []).filter((c) => c.function?.name);
+    if (!calls.length) return finalText || '(The agent finished without a written answer.)';
+    calls.forEach((c, i) => { c.id ||= `call_${turn}_${i}`; c.type ||= 'function'; });
+    messages.push({ role: 'assistant', content: msg.content || '', tool_calls: calls });
+    const parsed = calls.map((c) => {
+      let input = {};
+      try { input = typeof c.function.arguments === 'string' ? JSON.parse(c.function.arguments || '{}') : c.function.arguments || {}; }
+      catch { input = null; }
+      return { id: c.id, name: c.function.name, input };
+    });
+    const bad = parsed.filter((p) => p.input === null);
+    const results = await runTools(parsed.filter((p) => p.input !== null), { agent, task });
+    for (const b of bad) results.push({ id: b.id, content: 'Error: tool arguments were not valid JSON. Try again with valid JSON.', isError: true });
+    for (const res of results) messages.push({ role: 'tool', tool_call_id: res.id, content: res.content });
+  }
+  return (finalText ? finalText + '\n\n' : '') + `(Stopped after ${MAX_TURNS} tool rounds.)`;
+}
+
+async function runClaude(agent, task, model, modelId) {
+  const tools = toolsFor('anthropic');
+  const messages = [{ role: 'user', content: contextPreamble(agent, task.prompt) }];
+  // Server-side refusal fallbacks are available on these models (not on Haiku).
+  const fallback = /^claude-(opus-5-5|sonnet-5-5|fable)/.test(model) ? { betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' } : {};
+  let finalText = '';
+  for (let turn = 0; turn < MAX_TURNS; turn++) {
+    const response = await anthropic().beta.messages.create({
+      model,
       max_tokens: 16000,
       system: [{ type: 'text', text: systemPrompt(agent), cache_control: { type: 'ephemeral' } }],
       output_config: { effort: EFFORT },
-      // If a safety classifier declines, the API retries on a fallback model in the same call.
-      betas: ['server-side-fallback-2026-07-01'],
-      fallbacks: 'default',
-      tools: TOOLS,
+      ...fallback,
+      tools,
       messages,
     });
-    addUsage(agent, task, response.usage);
+    addUsage(agent, task, response.usage, modelId);
     const text = response.content.filter((b) => b.type === 'text').map((b) => b.text).join('\n').trim();
     if (text) finalText = text;
 
@@ -318,16 +411,8 @@ async function runAgent(agent, task) {
     }
 
     messages.push({ role: 'assistant', content: response.content });
-    const results = [];
-    for (const tu of toolUses) {
-      try {
-        results.push({ type: 'tool_result', tool_use_id: tu.id, content: String(await runTool(tu.name, tu.input || {}, { agent, task })) });
-      } catch (e) {
-        results.push({ type: 'tool_result', tool_use_id: tu.id, content: `Error: ${e.message}`, is_error: true });
-      }
-    }
-    messages.push({ role: 'user', content: results });
-    save();
+    const results = await runTools(toolUses.map((tu) => ({ id: tu.id, name: tu.name, input: tu.input })), { agent, task });
+    messages.push({ role: 'user', content: results.map((r) => ({ type: 'tool_result', tool_use_id: r.id, content: r.content, ...(r.isError ? { is_error: true } : {}) })) });
   }
   return (finalText ? finalText + '\n\n' : '') + `(Stopped after ${MAX_TURNS} tool rounds.)`;
 }
@@ -362,8 +447,10 @@ async function execute(agent, task) {
     event('success', agent.id, `Finished: ${task.title || task.prompt.slice(0, 60)}`);
   } catch (e) {
     task.status = 'error';
-    const noKey = !process.env.ANTHROPIC_API_KEY && !process.env.ANTHROPIC_AUTH_TOKEN && !(e instanceof Anthropic.APIError);
-    task.result = e instanceof Anthropic.AuthenticationError || noKey ? 'Your Anthropic API key is missing or invalid. Set ANTHROPIC_API_KEY and restart the server (see Guide → Connect real agents).'
+    const claudeTask = parseModel(task.model).provider === 'anthropic';
+    const noKey = claudeTask && !process.env.ANTHROPIC_API_KEY && !process.env.ANTHROPIC_AUTH_TOKEN && !(e instanceof Anthropic.APIError);
+    task.result = e instanceof Anthropic.AuthenticationError || noKey ? `${agent.name} uses Claude, but no Anthropic API key is set. Either set ANTHROPIC_API_KEY, or switch ${agent.name} to a free model (Brain → Connect → AI models).`
+      : e.cause?.code === 'ECONNREFUSED' ? `Couldn't reach the model server for ${task.model}. If it's Ollama, make sure the Ollama app is running.`
       : e instanceof Anthropic.RateLimitError ? 'Rate limited by the API. Try again in a minute.'
       : e.message;
     event('error', agent.id, `Task failed: ${task.result}`);
@@ -411,13 +498,14 @@ ${handoff ? `\nResults from earlier steps:\n${handoff}` : ''}`;
 
 async function improvePrompt(text, agentId) {
   const agent = agentById(agentId);
-  const res = await client.messages.create({
-    model: MODEL,
-    max_tokens: 2000,
-    output_config: { effort: 'low' },
-    system: 'You help beginners write better instructions for AI agents. Rewrite the user\'s request so an agent can act on it: state the goal, key context, constraints, the output format, and what "done" looks like. Keep the user\'s intent and voice, keep it under 120 words, and use [brackets] for details only the user can fill in. Reply with the improved prompt only.',
-    messages: [{ role: 'user', content: `Agent: ${agent ? `${agent.name} (${agent.role})` : 'any'}\n\nRequest:\n${text}` }],
-  });
+  const system = 'You help beginners write better instructions for AI agents. Rewrite the user\'s request so an agent can act on it: state the goal, key context, constraints, the output format, and what "done" looks like. Keep the user\'s intent and voice, keep it under 120 words, and use [brackets] for details only the user can fill in. Reply with the improved prompt only.';
+  const user = `Agent: ${agent ? `${agent.name} (${agent.role})` : 'any'}\n\nRequest:\n${text}`;
+  const { provider, model } = parseModel(agent ? agentModel(agent) : defaultModel());
+  if (PROVIDERS[provider]?.kind === 'openai') {
+    const r = await openaiChat(provider, model, [{ role: 'system', content: system }, { role: 'user', content: user }]);
+    return (r.choices[0].message?.content || '').replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+  }
+  const res = await anthropic().messages.create({ model, max_tokens: 2000, output_config: { effort: 'low' }, system, messages: [{ role: 'user', content: user }] });
   return res.content.filter((b) => b.type === 'text').map((b) => b.text).join('').trim();
 }
 
@@ -426,14 +514,17 @@ async function improvePrompt(text, agentId) {
 function statusView(files) {
   const runFor = (wf) => state.runs.find((r) => r.workflow === wf.id);
   return {
-    mode: 'live', model: MODEL, serverTime: now(),
+    mode: 'live', model: defaultModel(), defaultModel: defaultModel(), serverTime: now(),
+    models: models.models, providers: Object.entries(PROVIDERS).map(([id, p]) => ({ id, label: p.label, free: p.free, setup: p.setup, ...(models.providers[id] || { ready: false, note: '' }) })),
+    connectors: connectors?.view() || [],
+    plugins: plugins.map((p) => ({ name: p.name, label: p.label, icon: p.icon, description: p.description, enabled: pluginOn(p) })),
     stations: state.stations,
     agents: state.agents.map((a) => {
       const l = live[a.id] || {};
       const u = state.usage[a.id] || { tokens: 0, cost: 0 };
       const queued = state.tasks.filter((t) => t.agent === a.id && t.status === 'queued').length;
       return {
-        id: a.id, name: a.name, role: a.role, station: a.station, instructions: a.instructions, model: MODEL,
+        id: a.id, name: a.name, role: a.role, station: a.station, instructions: a.instructions, model: agentModel(a), modelChosen: a.model || '',
         status: l.status === 'running' ? 'running' : l.status === 'error' ? 'error' : queued ? 'waiting' : 'idle',
         task: l.status === 'running' ? l.task : l.status === 'error' ? l.task : queued ? `${queued} task(s) queued` : 'Ready for a task',
         progress: l.progress || 0, tokens: u.tokens, cost: +u.cost.toFixed(4),
@@ -494,8 +585,28 @@ const routes = [
     if (!b.name) throw httpError(400, 'Agent needs a name');
     let id = slug(b.name) || uid('agent'); if (agentById(id)) id = `${id}-${crypto.randomBytes(2).toString('hex')}`;
     const station = state.stations.some((s) => s.id === b.station) ? b.station : state.stations[0].id;
-    const a = { id, name: String(b.name).slice(0, 40), role: String(b.role || 'Assistant').slice(0, 60), station, instructions: String(b.instructions || '').slice(0, 4000) };
+    const a = { id, name: String(b.name).slice(0, 40), role: String(b.role || 'Assistant').slice(0, 60), station, instructions: String(b.instructions || '').slice(0, 4000), model: String(b.model || '') };
     state.agents.push(a); event('success', a.id, `${a.name} joined ${station}`); save(); return a;
+  }],
+  ['PATCH', /^\/api\/agents\/([\w-]+)$/, async ([id], b) => {
+    const a = agentById(id); if (!a) throw httpError(404, 'No such agent');
+    if ('model' in b) { a.model = String(b.model || ''); event('info', a.id, `${a.name} now uses ${agentModel(a)}`); }
+    for (const k of ['name', 'role', 'instructions']) if (typeof b[k] === 'string' && b[k].trim()) a[k] = b[k].slice(0, k === 'instructions' ? 4000 : 60);
+    save(); return a;
+  }],
+  ['PATCH', /^\/api\/settings$/, async (_, b) => {
+    if ('defaultModel' in b) state.settings.defaultModel = String(b.defaultModel || '');
+    save(); return { defaultModel: defaultModel() };
+  }],
+  ['POST', /^\/api\/models\/refresh$/, async () => { models = await discoverModels(true); return { count: models.models.length }; }],
+  ['POST', /^\/api\/connectors\/remote$/, async (_, b) => connectors.addRemote(b)],
+  ['DELETE', /^\/api\/connectors\/remote\/([\w-]+)$/, async ([id]) => { await connectors.removeRemote(id); return { ok: true }; }],
+  ['POST', /^\/api\/connectors\/([\w-]+)\/enable$/, async ([id], b) => { await connectors.enable(id, b.secrets || {}); return { ok: true }; }],
+  ['POST', /^\/api\/connectors\/([\w-]+)\/disable$/, async ([id]) => { await connectors.disable(id); return { ok: true }; }],
+  ['POST', /^\/api\/connectors\/([\w-]+)\/retry$/, async ([id]) => { connectors.connect(id).catch(() => {}); return { ok: true }; }],
+  ['POST', /^\/api\/plugins\/([\w-]+)$/, async ([name], b) => {
+    if (!plugins.some((p) => p.name === name)) throw httpError(404, 'No such plugin');
+    state.settings.plugins[name] = !!b.enabled; save(); return { ok: true };
   }],
   ['POST', /^\/api\/skills$/, async (_, b) => {
     const id = slug(b.name); if (!id || !b.instructions) throw httpError(400, 'Skill needs a name and instructions');
@@ -513,7 +624,7 @@ const routes = [
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x');
-  const cors = { 'Access-Control-Allow-Origin': process.env.CORS_ORIGIN || '*', 'Access-Control-Allow-Headers': 'Authorization, Content-Type', 'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS' };
+  const cors = { 'Access-Control-Allow-Origin': process.env.CORS_ORIGIN || '*', 'Access-Control-Allow-Headers': 'Authorization, Content-Type', 'Access-Control-Allow-Methods': 'GET, POST, PATCH, DELETE, OPTIONS' };
   try {
     if (req.method === 'OPTIONS') return send(res, 204, '', cors);
 
@@ -545,9 +656,18 @@ const server = http.createServer(async (req, res) => {
 });
 
 await loadState();
+state.settings = { defaultModel: '', plugins: {}, ...(state.settings || {}) };
+plugins = await loadPlugins([path.join(HERE, 'plugins'), path.join(DATA_DIR, 'plugins')], (lvl, msg) => event(lvl, null, msg));
+connectors = new Connectors({ dataDir: DATA_DIR, filesDir: FILES_DIR, onEvent: (lvl, msg) => event(lvl, null, msg) });
+await connectors.load();
+models = await discoverModels(true);
+setInterval(async () => { models = await discoverModels(); }, 5 * 60e3).unref();
+
 server.listen(PORT, HOST, () => {
   console.log(`\n  Agent Station is running → http://localhost:${PORT}`);
-  console.log(`  Model: ${MODEL} · data: ${DATA_DIR}${TOKEN ? ' · token required' : ''}`);
-  if (!process.env.ANTHROPIC_API_KEY && !process.env.ANTHROPIC_AUTH_TOKEN) console.log('  ⚠  ANTHROPIC_API_KEY is not set — tasks will fail until you set it.');
+  console.log(`  Default model: ${defaultModel()} · ${models.models.length} model(s) available · ${plugins.length} plugin(s) · data: ${DATA_DIR}${TOKEN ? ' · token required' : ''}`);
+  for (const [id, p] of Object.entries(models.providers)) console.log(`   ${p.ready ? '✓' : '·'} ${PROVIDERS[id].label}: ${p.note}`);
+  if (!models.models.length) console.log('  ⚠  No AI models found. Set ANTHROPIC_API_KEY, or install Ollama (free) from ollama.com and pull a model.');
   console.log('  Open the address above on your phone (same Wi-Fi: use this computer\'s IP).\n');
 });
+for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, async () => { await connectors.closeAll(); process.exit(0); });

@@ -1,0 +1,14 @@
+{
+  "name": "Agent Station",
+  "short_name": "Station",
+  "description": "Monitor your AI agents, workflows and stations in real time.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#05070f",
+  "theme_color": "#05070f",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#05070f">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>Agent Station</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icon.svg">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <canvas id="stars" aria-hidden="true"></canvas>
+
+  <header class="top">
+    <div class="brand">
+      <span class="core" aria-hidden="true"></span>
+      <div>
+        <h1>Agent Station</h1>
+        <p id="sourceLabel" class="muted">Demo feed</p>
+      </div>
+    </div>
+    <div class="live" id="liveBadge"><span class="dot"></span><span id="liveText">LIVE</span></div>
+  </header>
+
+  <main id="view" aria-live="polite"></main>
+
+  <nav class="tabs" role="tablist">
+    <button data-tab="station" class="active" role="tab"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="8" fill="none"/></svg>Station</button>
+    <button data-tab="workflows" role="tab"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="6" height="6" rx="1.5"/><rect x="15" y="14" width="6" height="6" rx="1.5"/><path d="M9 7h4a2 2 0 0 1 2 2v5" fill="none"/></svg>Workflows</button>
+    <button data-tab="activity" role="tab"><svg viewBox="0 0 24 24"><path d="M3 12h4l3-7 4 14 3-7h4" fill="none"/></svg>Activity</button>
+    <button data-tab="settings" role="tab"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1" fill="none"/></svg>Setup</button>
+  </nav>
+
+  <div id="sheet" class="sheet" hidden>
+    <div class="sheet-backdrop" data-close></div>
+    <section class="sheet-panel" role="dialog" aria-modal="true">
+      <div class="grab" data-close></div>
+      <div id="sheetBody"></div>
+    </section>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

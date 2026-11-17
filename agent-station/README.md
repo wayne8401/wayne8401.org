@@ -22,6 +22,8 @@ The app is a set of static files, so any free static host works:
 3. It opens full-screen like a native app. Choose **Run them on this phone** and set up a brain.
 
 ## Optional: computer server (power mode)
+Everything in this section needs the station server (`server/`) running on a computer. It adds Ollama and other local models, MCP connectors, studio voices and voice cloning. The phone connects to it from ⚙️ → *On my computer*.
+
 ## Free & open-source models
 Every agent can use a different AI model, and many of them are free:
 

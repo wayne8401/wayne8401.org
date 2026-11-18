@@ -14,7 +14,9 @@
   const INK = '#0b1022';
 
   // Draws an avatar from a small spec. viewBox 64x64.
-  function avatarSvg(c, label = '') {
+  // Draws an avatar from a small spec, viewBox 64x64. By default it's a small full-bodied robot;
+  // { full: false } draws just the head (for tiny icons).
+  function avatarSvg(c, label = '', { full = true, bare = false } = {}) {
     const { bg, fg, shape = 'round', eyes = 'dot', mouth = 'smile', top = 'none', body = 'none', cheeks = false, accent = '#ffffff' } = c;
     const parts = [];
     const G = (cls, svg) => (svg ? `<g class="p-${cls}">${svg}</g>` : ''); // named layers, so the builder can animate parts flying together
@@ -25,7 +27,8 @@
       wings: `<path d="M14 40 L1 26 L4 46 L12 50 Z" fill="${fg}" opacity=".8"/><path d="M50 40 L63 26 L60 46 L52 50 Z" fill="${fg}" opacity=".8"/><path d="M5 31 L12 41" stroke="${accent}" stroke-width="1.6"/><path d="M59 31 L52 41" stroke="${accent}" stroke-width="1.6"/>`,
       none: '',
     };
-    parts.push(G('body', bodies[body] || ''));
+    const BUST = { vehicle: 'chassis', jet: 'wings' }; // head-only icons show a hint of the armor
+    if (!full) parts.push(G('body', bodies[BUST[body] || body] || ''));
     // decorations behind the head
     const tops = {
       antenna: `<line x1="32" y1="17" x2="32" y2="7" stroke="${fg}" stroke-width="3" stroke-linecap="round"/><circle cx="32" cy="6" r="4" fill="${accent}"/>`,
@@ -95,14 +98,48 @@
     };
     face.push(mouths[mouth] ?? mouths.smile);
     parts.push(G('face', face.join('')));
-    return `<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="${label}"><rect width="64" height="64" rx="18" fill="${bg}"/>${parts.join('')}</svg>`;
+    const open = `<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="${label}">${bare ? '' : `<rect width="64" height="64" rx="18" fill="${bg}"/>`}`;
+    if (!full) return `${open}${parts.join('')}</svg>`;
+    return `${open}${robotFrame(fg, accent, body)}<g transform="translate(14.5 -1.5) scale(.55)">${parts.join('')}</g></svg>`;
+  }
+
+  // The small robot body under the head: legs, arms, torso, plus the chosen armor or vehicle kit.
+  function robotFrame(fg, accent, body) {
+    const shade = (svg) => `<g opacity=".22" fill="${INK}">${svg}</g>`;
+    const back = {
+      wings: `<path d="M22 33 L3 19 L7 43 Z" fill="${fg}" opacity=".8"/><path d="M42 33 L61 19 L57 43 Z" fill="${fg}" opacity=".8"/><path d="M8 26 L18 35 M56 26 L46 35" stroke="${accent}" stroke-width="1.6"/>`,
+      jet: `<path d="M24 35 L1 45 L4 50 L24 43 Z" fill="${fg}"/><path d="M40 35 L63 45 L60 50 L40 43 Z" fill="${fg}"/><path d="M21 32 L15 17 L24 29 Z" fill="${fg}"/><path d="M43 32 L49 17 L40 29 Z" fill="${fg}"/><path d="M4 47 L14 44 M60 47 L50 44" stroke="${accent}" stroke-width="1.6"/>`,
+      vehicle: `<circle cx="12.5" cy="33" r="5" fill="${INK}"/><circle cx="12.5" cy="33" r="2" fill="${accent}"/><circle cx="51.5" cy="33" r="5" fill="${INK}"/><circle cx="51.5" cy="33" r="2" fill="${accent}"/>`,
+    }[body] || '';
+    const frame = `
+      <rect x="23" y="46" width="7" height="11" rx="2.5" fill="${fg}"/><rect x="34" y="46" width="7" height="11" rx="2.5" fill="${fg}"/>
+      ${shade('<rect x="23" y="51" width="7" height="1.6"/><rect x="34" y="51" width="7" height="1.6"/>')}
+      <rect x="20.5" y="55.5" width="11" height="4.5" rx="2.2" fill="${fg}"/><rect x="32.5" y="55.5" width="11" height="4.5" rx="2.2" fill="${fg}"/>
+      ${shade('<rect x="20.5" y="58" width="11" height="2" rx="1"/><rect x="32.5" y="58" width="11" height="2" rx="1"/>')}
+      <rect x="13.5" y="33" width="6.5" height="13" rx="3.2" fill="${fg}"/><rect x="44" y="33" width="6.5" height="13" rx="3.2" fill="${fg}"/>
+      ${shade('<rect x="13.5" y="39" width="6.5" height="7" rx="3"/><rect x="44" y="39" width="6.5" height="7" rx="3"/>')}
+      <circle cx="16.8" cy="47.6" r="2.7" fill="${fg}"/><circle cx="47.2" cy="47.6" r="2.7" fill="${fg}"/>
+      <rect x="28.5" y="28" width="7" height="5" fill="${INK}" opacity=".45"/>
+      <rect x="20" y="31" width="24" height="17" rx="5" fill="${fg}"/>
+      <rect x="24" y="35" width="16" height="9" rx="2.5" fill="${INK}" opacity=".5"/><circle cx="32" cy="39.5" r="2.6" fill="${accent}"/>
+      ${shade('<rect x="24" y="46" width="16" height="2.4" rx="1"/>')}`;
+    const front = {
+      shoulders: `<path d="M10.5 37 Q10.5 30 18 30 L23.5 31 L22 38 Z" fill="${fg}"/><path d="M53.5 37 Q53.5 30 46 30 L40.5 31 L42 38 Z" fill="${fg}"/>${shade('<path d="M10.5 37 L22 38 L22.3 36 L11 35.2 Z"/><path d="M53.5 37 L42 38 L41.7 36 L53 35.2 Z"/>')}<rect x="13" y="32.5" width="6" height="1.8" rx=".9" fill="${accent}"/><rect x="45" y="32.5" width="6" height="1.8" rx=".9" fill="${accent}"/>`,
+      chassis: `<path d="M18.5 31 L45.5 31 L43 45 L21 45 Z" fill="${fg}"/><path d="M24 34 L40 34 L38.4 42 L25.6 42 Z" fill="${INK}" opacity=".55"/><path d="M27 36.5 L37 36.5 M27.5 39.5 L36.5 39.5" stroke="${accent}" stroke-width="1.4"/>`,
+      vehicle: `<path d="M22 32.5 L42 32.5 L40 41 L24 41 Z" fill="#9fd8ff" opacity=".9"/><path d="M25 39.5 L29 33.5" stroke="#fff" stroke-width="1.4" opacity=".55"/><circle cx="23.6" cy="44.6" r="1.7" fill="#fff6bf"/><circle cx="40.4" cy="44.6" r="1.7" fill="#fff6bf"/><circle cx="20.5" cy="52" r="4" fill="${INK}"/><circle cx="20.5" cy="52" r="1.6" fill="${accent}"/><circle cx="43.5" cy="52" r="4" fill="${INK}"/><circle cx="43.5" cy="52" r="1.6" fill="${accent}"/>`,
+      jet: `<path d="M26 36 L32 41 L38 36" stroke="${accent}" stroke-width="2" fill="none" stroke-linejoin="round"/><path d="M26 39.5 L32 44.5 L38 39.5" stroke="${accent}" stroke-width="2" fill="none" stroke-linejoin="round" opacity=".6"/>`,
+      wings: '',
+    }[body] || '';
+    return `<g class="p-body">${back}${frame}${front}</g>`;
   }
 
   // Looks for the three starter agents.
   const LOOKS = {
-    scout: { bg: '#0f3b4a', fg: '#38e8ff', shape: 'round', eyes: 'visor', mouth: 'smile', top: 'dish', accent: '#4dffa6' },
-    quill: { bg: '#2b1f55', fg: '#b9a3ff', shape: 'tall', eyes: 'glasses', mouth: 'smile', top: 'tuft', accent: '#ffd84d' },
-    atlas: { bg: '#123d2c', fg: '#4dffa6', shape: 'square', eyes: 'dot', mouth: 'grille', top: 'antenna', accent: '#ffb84d' },
+    scout: { bg: '#0f3b4a', fg: '#38e8ff', shape: 'helm', eyes: 'visor', mouth: 'vent', top: 'dish', body: 'vehicle', accent: '#4dffa6' },
+    quill: { bg: '#2b1f55', fg: '#b9a3ff', shape: 'hex', eyes: 'glasses', mouth: 'grille', top: 'crest', body: 'chassis', accent: '#ffd84d' },
+    atlas: { bg: '#123d2c', fg: '#4dffa6', shape: 'mech', eyes: 'scanner', mouth: 'faceplate', top: 'antenna', body: 'shoulders', accent: '#ffb84d' },
+    muse: { bg: '#1f1a17', fg: '#efe4d6', shape: 'drone', eyes: 'big', mouth: 'smile', top: 'antenna', body: 'chassis', accent: '#ffb7a6', cheeks: true },
+    echo: { bg: '#4a1036', fg: '#ff7ad9', shape: 'drone', eyes: 'cyclops', mouth: 'vent', top: 'sensors', body: 'jet', accent: '#38e8ff' },
   };
 
   const CHARACTERS = [
@@ -110,84 +147,84 @@
       id: 'novi', name: 'Novi', role: 'Research navigator', station: 'research', voice: 'af_heart', pitch: 1.05, tag: 'Research',
       vibe: 'Curious, precise, loves a good source',
       greeting: "Hi, I'm Novi! Give me any question and I'll chart the facts, with sources you can check.",
-      look: { bg: '#10284f', fg: '#7fb6ff', shape: 'round', eyes: 'big', mouth: 'smile', top: 'star', accent: '#ffd84d' },
+      look: { bg: '#10284f', fg: '#7fb6ff', shape: 'sentinel', eyes: 'optics', mouth: 'vent', top: 'crest', body: 'jet', accent: '#ffd84d' },
       instructions: 'You are Novi, a curious and precise research navigator. Find reliable, current information, compare sources, cite links, and clearly flag anything uncertain. Explain findings in plain words with a short summary first.',
     },
     {
       id: 'zipp', name: 'Zipp', role: 'Quick fact-checker', station: 'research', voice: 'am_puck', pitch: 1.2, tag: 'Research',
       vibe: 'Speedy, sharp, allergic to rumors',
       greeting: "Zipp here! Toss me a claim and I'll zap it with facts, fast.",
-      look: { bg: '#4a3a0a', fg: '#ffd84d', shape: 'hex', eyes: 'dot', mouth: 'grin', top: 'bolt', accent: '#38e8ff' },
+      look: { bg: '#4a3a0a', fg: '#ffd84d', shape: 'drone', eyes: 'vvisor', mouth: 'flat', top: 'bolt', body: 'vehicle', accent: '#38e8ff' },
       instructions: 'You are Zipp, an energetic fact-checker. Check claims quickly against reputable sources, give a clear verdict (true, false, misleading or unclear), explain why in two or three sentences, and link the evidence.',
     },
     {
       id: 'hootley', name: 'Professor Hootley', role: 'Patient tutor', station: 'studio', voice: 'bm_george', pitch: 0.9, tag: 'Learning',
       vibe: 'Wise, gentle, never makes you feel silly',
       greeting: "Good day! I'm Professor Hootley. What shall we learn together? No question is too small.",
-      look: { bg: '#3a2a1a', fg: '#c99a6b', shape: 'wide', eyes: 'owl', mouth: 'none', top: 'owl', accent: '#ffb84d' },
+      look: { bg: '#3a2a1a', fg: '#c99a6b', shape: 'mech', eyes: 'owl', mouth: 'grille', top: 'horns', body: 'wings', accent: '#ffb84d' },
       instructions: 'You are Professor Hootley, a wise and patient tutor. Explain topics step by step for a beginner, use everyday analogies, check understanding with a quick question, and finish with three short quiz questions. Encourage, never condescend.',
     },
     {
       id: 'kit', name: 'Kit', role: 'Study buddy', station: 'studio', voice: 'af_sky', pitch: 1.25, tag: 'Learning',
       vibe: 'Upbeat, playful, great at flashcards',
       greeting: "Hey, I'm Kit! Want to make studying feel like a game? Let's go!",
-      look: { bg: '#4a2410', fg: '#ff9a4d', shape: 'round', eyes: 'big', mouth: 'cat', top: 'fox', accent: '#ffe3c7', cheeks: true },
+      look: { bg: '#4a2410', fg: '#ff9a4d', shape: 'helm', eyes: 'big', mouth: 'vent', top: 'fins', body: 'vehicle', accent: '#ffe3c7' },
       instructions: 'You are Kit, an upbeat study buddy. Turn material into flashcards, mnemonics and mini quizzes, keep sessions short and fun, celebrate progress, and suggest what to review next. Keep it age-appropriate and kind.',
     },
     {
       id: 'confetti', name: 'Confetti', role: 'Social media creator', station: 'studio', voice: 'af_bella', pitch: 1.15, tag: 'Creative',
       vibe: 'Bubbly, on-trend, hooks in five words',
       greeting: "Hiya, I'm Confetti! Let's make posts people actually stop scrolling for.",
-      look: { bg: '#4a1036', fg: '#ff7ad9', shape: 'round', eyes: 'happy', mouth: 'grin', top: 'twin', accent: '#ffd84d', cheeks: true },
+      look: { bg: '#4a1036', fg: '#ff7ad9', shape: 'drone', eyes: 'happy', mouth: 'grin', top: 'twin', body: 'jet', accent: '#ffd84d' },
       instructions: 'You are Confetti, a bubbly social media creator. Write short, scroll-stopping posts with a strong hook, a clear call to action and fitting hashtags; suggest the best format and time to post. Stay original and never copy other creators.',
     },
     {
       id: 'luma', name: 'Luma', role: 'Storyteller & writer', station: 'studio', voice: 'bf_lily', pitch: 1.0, tag: 'Creative',
       vibe: 'Dreamy, warm, paints with words',
       greeting: "Hello, I'm Luma. Shall we write something lovely? A story, a speech, a heartfelt note?",
-      look: { bg: '#1d1a4a', fg: '#e8e2ff', shape: 'round', eyes: 'sleepy', mouth: 'smile', top: 'halo', accent: '#ffd84d', cheeks: true },
+      look: { bg: '#1d1a4a', fg: '#e8e2ff', shape: 'hex', eyes: 'sleepy', mouth: 'smile', top: 'halo', body: 'wings', accent: '#ffd84d' },
       instructions: 'You are Luma, a warm storyteller and writer. Craft stories, speeches, toasts and heartfelt messages with vivid but simple language. Ask about the audience and tone if it matters, and always write original material.',
     },
     {
       id: 'pip', name: 'Pip', role: 'Budget buddy', station: 'ops', voice: 'bf_emma', pitch: 1.1, tag: 'Money & life',
       vibe: 'Thrifty, cheerful, great with numbers',
       greeting: "Hello! I'm Pip, your budget buddy. Let's make every coin count.",
-      look: { bg: '#4a1a2a', fg: '#ffa3c2', shape: 'wide', eyes: 'dot', mouth: 'o', top: 'ears', accent: '#ff7aa8', cheeks: true },
+      look: { bg: '#4a1a2a', fg: '#ffa3c2', shape: 'mech', eyes: 'scanner', mouth: 'o', top: 'sensors', body: 'chassis', accent: '#ff7aa8' },
       instructions: 'You are Pip, a cheerful budget buddy. Build simple budgets, track spending categories, compare prices and find savings, and show the math in a small table (use the calculator for any arithmetic). Give general information, not personal financial, tax or legal advice.',
     },
     {
       id: 'mira', name: 'Mira', role: 'Inbox & email helper', station: 'ops', voice: 'af_nicole', pitch: 1.0, tag: 'Work',
       vibe: 'Calm, polished, replies in half the time',
       greeting: "Hi, I'm Mira. Paste a message and I'll help you answer it clearly and kindly.",
-      look: { bg: '#103a3a', fg: '#7af0d8', shape: 'tall', eyes: 'dot', mouth: 'smile', top: 'leaf', accent: '#4dffa6' },
+      look: { bg: '#103a3a', fg: '#7af0d8', shape: 'helm', eyes: 'optics', mouth: 'faceplate', top: 'crest', body: 'shoulders', accent: '#4dffa6' },
       instructions: 'You are Mira, a calm inbox helper. Summarize long messages, draft clear and kind replies in the right tone, suggest subject lines, and list follow-ups. Keep drafts short and leave [brackets] for details only the user knows.',
     },
     {
       id: 'wrenna', name: 'Wrenna', role: 'Tech helper', station: 'ops', voice: 'am_michael', pitch: 0.95, tag: 'Work',
       vibe: 'Handy, unflappable, explains without jargon',
       greeting: "Hey, I'm Wrenna. Tech acting up? Tell me what's happening and we'll fix it step by step.",
-      look: { bg: '#2a2f3a', fg: '#a9b8d6', shape: 'square', eyes: 'visor', mouth: 'grille', top: 'antenna', accent: '#ffb84d' },
+      look: { bg: '#2a2f3a', fg: '#a9b8d6', shape: 'mech', eyes: 'visor', mouth: 'grille', top: 'antenna', body: 'shoulders', accent: '#ffb84d' },
       instructions: 'You are Wrenna, an unflappable tech helper. Troubleshoot devices, apps and accounts one step at a time, ask what the user sees, avoid jargon, and warn before anything risky like resets. Never ask for passwords.',
     },
     {
       id: 'rova', name: 'Rova', role: 'Travel planner', station: 'ops', voice: 'bm_lewis', pitch: 1.0, tag: 'Money & life',
       vibe: 'Adventurous, organized, knows the hidden gems',
       greeting: "I'm Rova! Where are we off to? I'll sort the plan so you can enjoy the trip.",
-      look: { bg: '#3a2410', fg: '#ffcf7a', shape: 'round', eyes: 'wink', mouth: 'smile', top: 'antenna', accent: '#38e8ff' },
+      look: { bg: '#3a2410', fg: '#ffcf7a', shape: 'sentinel', eyes: 'wink', mouth: 'vent', top: 'fins', body: 'jet', accent: '#38e8ff' },
       instructions: 'You are Rova, an organized travel planner. Build day-by-day itineraries with realistic timing, budgets and backup options, mention booking tips and local customs, and check current information (opening hours, travel rules) on the web.',
     },
     {
       id: 'basil', name: 'Basil', role: 'Kitchen companion', station: 'ops', voice: 'am_eric', pitch: 0.95, tag: 'Money & life',
       vibe: 'Cozy, practical, turns leftovers into dinner',
       greeting: "Basil at your service! Tell me what's in your fridge and I'll find you something tasty.",
-      look: { bg: '#163a16', fg: '#9be37a', shape: 'round', eyes: 'happy', mouth: 'smile', top: 'toque', accent: '#ffffff', cheeks: true },
+      look: { bg: '#163a16', fg: '#9be37a', shape: 'drone', eyes: 'happy', mouth: 'smile', top: 'toque', body: 'chassis', accent: '#ffffff' },
       instructions: 'You are Basil, a cozy kitchen companion. Suggest recipes from what the user has, scale servings, swap ingredients for diets and allergies, give clear steps with times, and build shopping lists. Flag food-safety basics when relevant.',
     },
     {
       id: 'calma', name: 'Calma', role: 'Routine & habits coach', station: 'ops', voice: 'af_sarah', pitch: 0.95, tag: 'Money & life',
       vibe: 'Steady, encouraging, tiny steps that stick',
       greeting: "Hi, I'm Calma. Let's build a routine that feels good and actually sticks.",
-      look: { bg: '#1a2f4a', fg: '#a3d8ff', shape: 'round', eyes: 'sleepy', mouth: 'smile', top: 'leaf', accent: '#9be37a' },
+      look: { bg: '#1a2f4a', fg: '#a3d8ff', shape: 'hex', eyes: 'sleepy', mouth: 'flat', top: 'halo', body: 'chassis', accent: '#9be37a' },
       instructions: 'You are Calma, a steady routine and habits coach. Help plan daily routines, break goals into tiny habits, set gentle reminders and celebrate streaks. Be encouraging, not preachy. You are not a medical or mental-health professional; suggest one for health concerns.',
     },
     {
@@ -226,13 +263,13 @@
     eyes: ['optics', 'scanner', 'vvisor', 'cyclops', 'visor', 'dot', 'big', 'happy', 'sleepy', 'glasses', 'wink', 'owl'],
     mouth: ['faceplate', 'vent', 'grille', 'flat', 'smile', 'grin', 'o', 'cat', 'none'],
     top: ['fins', 'crest', 'horns', 'sensors', 'antenna', 'twin', 'dish', 'bolt', 'none', 'ears', 'fox', 'owl', 'leaf', 'star', 'toque', 'tuft', 'halo'],
-    body: ['shoulders', 'chassis', 'wings', 'none'],
+    body: ['vehicle', 'jet', 'shoulders', 'chassis', 'wings', 'none'],
     bg: ['#10284f', '#0f3b4a', '#123d2c', '#2b1f55', '#4a1036', '#4a2410', '#4a3a0a', '#2a2f3a', '#1d1a4a', '#163a16', '#3a2a1a', '#05070f'],
     fg: ['#c7cfdc', '#6b7690', '#e5484d', '#3e6bff', '#e9b949', '#7fb6ff', '#38e8ff', '#4dffa6', '#b9a3ff', '#ff7ad9', '#ff9a4d', '#ffd84d', '#a9b8d6', '#e8e2ff', '#9be37a', '#c99a6b', '#ffa3c2'],
     accent: ['#38e8ff', '#ff5c7a', '#ffd84d', '#4dffa6', '#ff7aa8', '#ffb84d', '#ffffff', '#9be37a'],
   };
   /** Parts that read as robots/mechs: used by "Random robot" and for new builds. */
-  const ROBOT = { shape: ['helm', 'mech', 'sentinel', 'drone', 'square', 'hex'], eyes: ['optics', 'scanner', 'vvisor', 'cyclops', 'visor'], mouth: ['faceplate', 'vent', 'grille', 'flat'], top: ['fins', 'crest', 'horns', 'sensors', 'antenna', 'dish', 'none'], body: ['shoulders', 'chassis', 'wings'] };
+  const ROBOT = { shape: ['helm', 'mech', 'sentinel', 'drone', 'square', 'hex'], eyes: ['optics', 'scanner', 'vvisor', 'cyclops', 'visor'], mouth: ['faceplate', 'vent', 'grille', 'flat'], top: ['fins', 'crest', 'horns', 'sensors', 'antenna', 'dish', 'none'], body: ['vehicle', 'jet', 'shoulders', 'chassis', 'wings'] };
   // Keep only known parts and plain colours, so a stored look can never inject markup.
   function cleanLook(l) {
     if (!l || typeof l !== 'object') return null;

@@ -41,6 +41,7 @@
   const setKeys = (k) => { try { localStorage.setItem(KEYS_LS, JSON.stringify(k)); } catch { /* private mode */ } };
 
   /* ------------------------------------------------------------ state */
+  const ECHO = () => ({ id: 'echo', name: 'Echo', role: 'Social media manager', station: 'studio', instructions: 'You plan and write social media posts: scroll-stopping hooks, captions sized for each platform, relevant hashtags and a simple posting schedule. Match the brand voice asked for, suggest an image or video idea for each post, and never post anything yourself unless a connected tool is asked to.' });
   const DEFAULT = () => ({
     stations: [
       { id: 'research', name: 'Research Bay', region: 'web' },
@@ -51,6 +52,7 @@
       { id: 'scout', name: 'Scout', role: 'Web researcher', station: 'research', instructions: 'You find accurate, current information. Prefer reputable sources, cite links, and flag anything uncertain.' },
       { id: 'quill', name: 'Quill', role: 'Writer & editor', station: 'studio', instructions: 'You turn notes and research into clear, friendly writing: emails, posts, summaries and reports. Match the tone asked for and keep it concise.' },
       { id: 'atlas', name: 'Atlas', role: 'Planner', station: 'ops', instructions: 'You break goals into concrete plans, checklists and schedules. Be practical, estimate time, and order steps so the user can start today.' },
+      ECHO(),
     ],
     workflows: [
       { id: 'wf_brief', name: 'Research → Brief', trigger: 'manual', description: 'Scout researches a topic, then Quill writes a one-page brief.', input: 'the best budget laptops for students this year',
@@ -69,6 +71,7 @@
     try {
       const saved = await idb.get('state');
       if (saved) state = { ...DEFAULT(), ...saved, settings: { ...DEFAULT().settings, ...(saved.settings || {}) } };
+      if (!state.settings.echoAdded) { if (!state.agents.some((x) => x.id === 'echo')) state.agents.push(ECHO()); state.settings.echoAdded = true; } // Echo joined in a later version
       for (const t of state.tasks) if ((t.status === 'running' || t.status === 'queued') && t.agent !== 'muse') { t.status = 'error'; t.result = 'The app was closed before this task finished. Keep the app open while agents work.'; }
       for (const r of state.runs) if (r.status === 'running') { r.status = 'error'; r.steps.forEach((st) => { if (st.status === 'running') st.status = 'error'; }); }
     } catch { /* storage unavailable: run in memory */ }
@@ -611,9 +614,10 @@ You are running on a chat-only brain: you can't use tools, browse, save files or
   const setBridgeCfg = (c) => { try { localStorage.setItem(BRIDGE_LS, JSON.stringify(c)); } catch { /* private mode */ } };
   const defaultBridgeUrl = () => (typeof location !== 'undefined' && /^https?:/.test(location.origin) ? `${location.origin}/bridge` : '');
   const bridge = { connected: false, lastSync: 0, error: '', reportsSeen: {}, waiters: {} };
-  const MUSE_LOOK = { shape: 'tall', eyes: 'dot', mouth: 'smile', top: 'none', bg: '#1f1a17', fg: '#efe4d6', accent: '#ffb7a6', cheeks: true };
+  const MUSE_LOOK = { ...(window.AgentStationCharacters?.LOOKS.muse || {}) };
   function ensureMuse(on) {
     const has = state.agents.find((a) => a.id === 'muse');
+    if (has && has.look?.shape === 'tall' && has.look?.eyes === 'dot') { has.look = { ...MUSE_LOOK }; save(); } // older Muse look → robot
     if (on && !has) { state.agents.push({ id: 'muse', name: 'Muse', role: 'Your Muse agent', station: 'ops', external: true, look: MUSE_LOOK, instructions: 'External agent: tasks are sent to Muse through the Muse Bridge.' }); event('success', 'muse', 'Muse joined your station 🤝'); save(); }
   }
   async function bridgeSync() {

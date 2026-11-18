@@ -67,6 +67,7 @@
     { id: 'scout', name: 'Scout', role: 'Web researcher', station: 'research', instructions: 'You find accurate, current information on the web. Prefer primary and reputable sources, cite links, and flag anything uncertain.' },
     { id: 'quill', name: 'Quill', role: 'Writer & editor', station: 'studio', instructions: 'You turn notes and research into clear, friendly writing: emails, posts, summaries and reports.' },
     { id: 'atlas', name: 'Atlas', role: 'Planner', station: 'ops', instructions: 'You break goals into concrete plans, checklists and schedules the user can start today.' },
+    { id: 'echo', name: 'Echo', role: 'Social media manager', station: 'studio', instructions: 'You plan and write social media posts: hooks, captions, hashtags and a posting schedule.' },
   ];
   const WORKFLOWS = [
     {
@@ -393,12 +394,12 @@
   const pill = (s) => `<span class="pill s-${esc(s)}">${esc(s)}</span>`;
   const CH = window.AgentStationCharacters || { CHARACTERS: [], LOOKS: {}, avatarSvg: () => '', byId: () => null };
   const lookOf = (a) => (a?.look && CH.cleanLook(a.look)) || CH.LOOKS[a?.avatar] || CH.byId(a?.avatar)?.look || CH.LOOKS[a?.id] || null;
-  const avatar = (a, size = '') => {
+  const avatar = (a, size = '', { bare = false } = {}) => {
     const look = lookOf(a);
-    return look ? `<span class="avatar art ${size}">${CH.avatarSvg(look, esc(a.name || ''))}</span>`
+    return look ? `<span class="avatar art ${size}${bare ? ' bare' : ''}">${CH.avatarSvg(look, esc(a.name || ''), { full: !/\b(sm|xs)\b/.test(size), bare })}</span>`
       : `<span class="avatar ${size}" style="background:${colorOf(a.id)}">${esc((a.name || '?').slice(0, 1))}</span>`;
   };
-  const charAvatar = (c, size = '') => `<span class="avatar art ${size}">${CH.avatarSvg(c.look, esc(c.name))}</span>`;
+  const charAvatar = (c, size = '') => `<span class="avatar art ${size}">${CH.avatarSvg(c.look, esc(c.name), { full: !/\b(sm|xs)\b/.test(size) })}</span>`;
   const bar = (pct) => `<div class="bar"><i style="width:${Math.max(0, Math.min(100, pct || 0))}%"></i></div>`;
   const empty = (msg, cta = '') => `<div class="empty">${msg}${cta}</div>`;
 
@@ -477,7 +478,7 @@
       const ICON = { research: '🔬', studio: '🎨', ops: '🗂️' };
       return S.stations.map((st) => {
         const team = S.agents.filter((a) => a.station === st.id);
-        const museDesk = S.mode === 'phone' && st === S.stations[0] && !agentById('muse') ? `<button class="desk ghostdesk" data-act="muse-open" aria-label="Connect Muse"><span class="say">Tap to connect Muse</span><span class="worker">${avatar({ id: 'muse', name: 'Muse', look: { shape: 'tall', eyes: 'dot', mouth: 'smile', top: 'none', bg: '#1f1a17', fg: '#efe4d6', accent: '#ffb7a6', cheeks: true } }, 'md')}</span><span class="tabletop"></span><span class="plate"><b>Muse</b><small>🤝 not connected</small></span></button>` : '';
+        const museDesk = S.mode === 'phone' && st === S.stations[0] && !agentById('muse') ? `<button class="desk ghostdesk" data-act="muse-open" aria-label="Connect Muse"><span class="say">Tap to connect Muse</span><span class="worker">${avatar({ id: 'muse', name: 'Muse', look: CH.LOOKS.muse }, 'md')}</span><span class="tabletop"></span><span class="plate"><b>Muse</b><small>🤝 not connected</small></span></button>` : '';
         const busy = team.filter((a) => a.status === 'running').length;
         return `<div class="card wsta">
           <div class="wf-head"><b class="grow">${ICON[st.id] || '🏢'} ${esc(st.name)}</b><span class="mbadge ${busy ? 'free' : ''}">${busy ? `${busy} working` : 'quiet'}</span></div>
@@ -626,11 +627,55 @@
     return `<button class="card taskcard hist" data-act="task" data-id="${esc(t.id)}"><div class="wf-head">${withAgent ? avatar(a, 'sm') : ''}<div class="grow"><b>${esc(t.title || t.prompt.split('\n')[0].slice(0, 80))}</b><p class="muted tiny">${withAgent ? esc(a.name) + ' · ' : ''}${ago(t.finishedAt || t.createdAt)}${t.files?.length ? ' · 📎 ' + t.files.length : ''}</p></div>${pill(t.status)}</div></button>`;
   }
 
+  /* Office scenes shown behind an agent while it works (original art). Picked by agent, then by job. */
+  const SCENES = {
+    library: `<rect width="160" height="120" fill="#1f3352"/><rect y="96" width="160" height="24" fill="#1d2b45"/>
+      ${[[6, 10], [6, 40], [6, 70], [112, 10], [112, 40], [112, 70]].map(([x, y]) => `<rect x="${x}" y="${y + 24}" width="42" height="3" fill="#5a3e2b"/>${[0, 6, 11, 17, 23, 28, 34].map((dx, i) => `<rect x="${x + 2 + dx}" y="${y + (i % 3) * 2 + 4}" width="${i % 2 ? 4 : 5}" height="${20 - (i % 3) * 2}" rx="1" fill="${['#e5484d', '#3e6bff', '#e9b949', '#4dffa6', '#b9a3ff', '#ff9a4d', '#38e8ff'][i]}" opacity=".85"/>`).join('')}`).join('')}
+      <rect x="56" y="12" width="48" height="34" rx="2" fill="#e8d9b5"/><path d="M60 20 Q70 16 76 24 T98 22 M62 34 Q74 28 84 36 T100 34" stroke="#8a6d45" stroke-width="1.4" fill="none"/><circle cx="88" cy="26" r="2.4" fill="#e5484d"/><path d="M66 40 L72 30 L78 38" stroke="#4a7a52" stroke-width="1.2" fill="none"/>
+      <circle cx="80" cy="76" r="9" fill="#3e6bff" opacity=".8"/><path d="M73 72 Q80 68 86 74 M72 80 Q80 84 87 79" stroke="#4dffa6" stroke-width="1.4" fill="none"/><rect x="77" y="85" width="6" height="8" fill="#5a3e2b"/>`,
+    writer: `<rect width="160" height="120" fill="#33283f"/><rect x="104" y="10" width="44" height="40" rx="3" fill="#1a2a4a"/><path d="M126 10 V50 M104 30 H148" stroke="#251d30" stroke-width="3"/><circle cx="138" cy="20" r="4" fill="#fff6bf" opacity=".8"/>
+      <rect y="92" width="160" height="28" fill="#4a3424"/><rect y="90" width="160" height="4" fill="#5e4430"/>
+      <path d="M22 90 L22 52 Q22 40 34 40 L44 40" stroke="#c7cfdc" stroke-width="3" fill="none"/><path d="M36 34 L54 34 L58 46 L32 46 Z" fill="#e9b949"/><path d="M34 46 L56 46 L74 90 L16 90 Z" fill="#fff6bf" opacity=".12"/><rect x="14" y="88" width="16" height="4" rx="2" fill="#c7cfdc"/>
+      <rect x="58" y="74" width="30" height="18" fill="#f3efe4" transform="rotate(-6 73 83)"/><rect x="62" y="70" width="30" height="20" fill="#fffdf6"/><path d="M66 76 H86 M66 80 H88 M66 84 H80" stroke="#9aa3b8" stroke-width="1.2"/>
+      <circle cx="98" cy="86" r="3.5" fill="#fffdf6"/><circle cx="104" cy="88" r="3" fill="#f3efe4"/>
+      <rect x="120" y="74" width="16" height="16" rx="3" fill="#e5484d"/><path d="M136 78 Q142 78 142 83 Q142 88 136 88" stroke="#e5484d" stroke-width="2.4" fill="none"/><path d="M124 70 Q122 64 126 60 M130 70 Q128 64 132 60" stroke="#fff" stroke-width="1.4" fill="none" opacity=".55"/>`,
+    planning: `<rect width="160" height="120" fill="#12271f"/><rect y="98" width="160" height="22" fill="#1a3329"/>
+      <rect x="14" y="10" width="132" height="70" rx="4" fill="#eef2f6"/><rect x="14" y="10" width="132" height="70" rx="4" fill="none" stroke="#a9b8d6" stroke-width="3"/>
+      <path d="M24 66 V30 M24 66 H74" stroke="#6b7690" stroke-width="1.4"/>${[[30, 50], [40, 40], [50, 56], [60, 34]].map(([x, y]) => `<rect x="${x}" y="${y}" width="7" height="${66 - y}" fill="#3e6bff"/>`).join('')}
+      <path d="M84 60 L96 48 L106 54 L118 36 L130 42" stroke="#e5484d" stroke-width="2" fill="none"/>${[[84, 60], [96, 48], [106, 54], [118, 36], [130, 42]].map(([x, y]) => `<circle cx="${x}" cy="${y}" r="2" fill="#e5484d"/>`).join('')}
+      <rect x="86" y="16" width="16" height="14" fill="#ffd84d" transform="rotate(-4 94 23)"/><rect x="108" y="16" width="16" height="14" fill="#4dffa6"/><rect x="128" y="18" width="14" height="13" fill="#ff7ad9" transform="rotate(5 135 24)"/>
+      ${[[94, 17, '#e5484d'], [116, 17, '#3e6bff'], [135, 19, '#e9b949'], [40, 20, '#4dffa6'], [60, 22, '#ff9a4d']].map(([x, y, c]) => `<circle cx="${x}" cy="${y}" r="2.4" fill="${c}"/>`).join('')}
+      <rect x="76" y="80" width="8" height="18" fill="#6b7690"/>`,
+    studio: `<rect width="160" height="120" fill="#2a1430"/><rect y="98" width="160" height="22" fill="#331a3a"/>
+      <circle cx="80" cy="42" r="26" fill="none" stroke="#fff6e8" stroke-width="7" opacity=".9"/><circle cx="80" cy="42" r="26" fill="none" stroke="#ffd9f2" stroke-width="16" opacity=".12"/>
+      <rect x="72" y="28" width="16" height="28" rx="3" fill="#0b1022"/><rect x="74" y="31" width="12" height="21" rx="1.5" fill="#38e8ff" opacity=".7"/><circle cx="80" cy="54" r="1" fill="#c7cfdc"/>
+      <path d="M80 68 V96 M80 82 L66 98 M80 82 L94 98" stroke="#c7cfdc" stroke-width="2.4" stroke-linecap="round"/>
+      <rect x="12" y="20" width="24" height="30" rx="2" fill="#fff6e8" opacity=".25"/><path d="M24 50 V98" stroke="#6b7690" stroke-width="2"/>
+      <path d="M128 26 C128 20 136 20 136 26 C136 20 144 20 144 26 C144 33 136 38 136 40 C136 38 128 33 128 26 Z" fill="#ff5c7a" opacity=".9"/><circle cx="118" cy="58" r="6" fill="none" stroke="#ff7ad9" stroke-width="2"/><path d="M116 58 L118 60 L121 56" stroke="#ff7ad9" stroke-width="1.6" fill="none"/><text x="128" y="64" font-size="10" fill="#ffd9f2" font-family="sans-serif" font-weight="700">+1k</text>`,
+    office: `<rect width="160" height="120" fill="#17213a"/><rect y="96" width="160" height="24" fill="#1f2b48"/>
+      <rect x="16" y="12" width="56" height="44" rx="3" fill="#0c1a33"/>${[[20, 34, 8, 20], [30, 26, 10, 28], [42, 38, 8, 16], [52, 22, 12, 32], [66, 32, 5, 22]].map(([x, y, w, h]) => `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="#26375e"/>`).join('')}<path d="M44 12 V56 M16 34 H72" stroke="#17213a" stroke-width="2"/>
+      <circle cx="120" cy="26" r="12" fill="#eef2f6"/><path d="M120 18 V26 L126 30" stroke="#0b1022" stroke-width="2" fill="none"/>
+      <rect x="98" y="60" width="50" height="3" fill="#5a3e2b"/><rect x="102" y="48" width="8" height="12" fill="#3e6bff"/><rect x="112" y="50" width="6" height="10" fill="#e9b949"/>
+      <path d="M140 60 Q134 46 140 40 Q146 46 140 60 M140 60 Q132 50 128 52 M140 60 Q148 50 152 52" fill="#4dffa6" opacity=".8"/><rect x="134" y="80" width="12" height="16" rx="2" fill="#5a3e2b"/><path d="M140 80 Q130 66 136 60 M140 80 Q150 66 144 60" stroke="#4dffa6" stroke-width="3" fill="none"/>`,
+  };
+  const SCENE_BY_AGENT = { scout: 'library', quill: 'writer', atlas: 'planning', echo: 'studio' };
+  function sceneKind(a) {
+    if (SCENE_BY_AGENT[a.id]) return SCENE_BY_AGENT[a.id];
+    const r = `${a.role || ''}`.toLowerCase();
+    if (/research|fact|tutor|study|learn|news|security/.test(r)) return 'library';
+    if (/writ|edit|email|story|copy|blog/.test(r)) return 'writer';
+    if (/plan|ops|schedul|budget|project|travel|routine|coach/.test(r)) return 'planning';
+    if (/social|media|post|market|video|creat/.test(r)) return 'studio';
+    return 'office';
+  }
+  const sceneHtml = (a) => `<span class="scene" aria-hidden="true"><svg viewBox="0 0 160 120" preserveAspectRatio="xMidYMid slice">${SCENES[sceneKind(a)]}</svg></span>`;
+
   function desk(a) {
     const say = a.status === 'running' ? (a.task || 'Working…') : a.status === 'waiting' ? (a.task || 'Waiting in line') : a.status === 'error' ? 'Ran into a problem. Tap me' : 'Ready for a task';
     return `<button class="desk s-${esc(a.status)} ${ui.flashAgent === a.id ? 'flash' : ''}" data-act="agent" data-id="${esc(a.id)}" aria-label="${esc(a.name)}: ${esc(say)}">
       <span class="say">${esc(say)}</span>
-      <span class="worker">${avatar(a, 'md')}<i class="lamp"></i></span>
+      ${a.status === 'running' ? sceneHtml(a) : ''}
+      <span class="worker">${avatar(a, 'lg', { bare: a.status === 'running' })}<i class="lamp"></i></span>
       <span class="monitor ${a.status === 'running' ? 'on' : ''}"><i></i><i></i><i></i></span>
       <span class="tabletop"></span>
       <span class="plate"><b>${esc(a.name)}</b><small>${a.external ? '🤝 via Muse Bridge' : a.model ? `${esc(shortModel(a.model))}${isChatOnly(a.model) ? ' · 💬' : ''}` : esc(a.role)}</small></span>
@@ -661,7 +706,7 @@
     const pillB = b.enabled ? (b.connected ? '<span class="pill s-running">connected</span>' : '<span class="pill s-error">not connected</span>') : '<span class="pill s-idle">off</span>';
     return `
       <div class="card musecard">
-        <div class="wf-head">${avatar(museAgent || { id: 'muse', name: 'Muse', look: { shape: 'tall', eyes: 'dot', mouth: 'smile', top: 'none', bg: '#1f1a17', fg: '#efe4d6', accent: '#ffb7a6', cheeks: true } }, 'md')}<div class="grow"><b>Muse Bridge</b><p class="muted tiny">Muse joins your floor: you can give Muse tasks, Muse can give your agents tasks, and Muse's work shows at its desk.</p></div>${pillB}</div>
+        <div class="wf-head">${avatar(museAgent || { id: 'muse', name: 'Muse', look: CH.LOOKS.muse }, 'md')}<div class="grow"><b>Muse Bridge</b><p class="muted tiny">Muse joins your floor: you can give Muse tasks, Muse can give your agents tasks, and Muse's work shows at its desk.</p></div>${pillB}</div>
         ${b.enabled && b.connected ? `<p class="muted tiny" style="margin:10px 0 0">Last sync ${ago(b.lastSync)}. ${(b.reports || []).length ? 'Latest from Muse: <b>' + esc(b.reports[0].title) + '</b> (' + esc(b.reports[0].status) + ')' : 'No activity from Muse yet. Ask Muse to use the Agent Station connector.'}</p>
           <div class="row" style="margin-top:10px"><button class="btn small" data-act="task-for" data-id="muse">✍️ Give Muse a task</button><button class="btn ghost small" data-act="bridge-off">Turn off</button></div>`
         : `${b.error ? `<p class="tiny s-error" style="margin:10px 0 0">${esc(b.error)}</p>` : ''}
@@ -723,7 +768,7 @@
         svg += `<line class="link ${a.status === 'running' ? 'hot' : ''}" x1="${sx.toFixed(1)}" y1="${sy.toFixed(1)}" x2="${ax.toFixed(1)}" y2="${ay.toFixed(1)}"/>`;
         const look = lookOf(a);
         const face = look
-          ? `<circle cx="${ax.toFixed(1)}" cy="${ay.toFixed(1)}" r="13.5" fill="none" stroke="${ring}" stroke-width="2.5"/><image href="data:image/svg+xml;utf8,${encodeURIComponent(CH.avatarSvg(look))}" x="${(ax - 12).toFixed(1)}" y="${(ay - 12).toFixed(1)}" width="24" height="24" clip-path="circle(11px)"/>`
+          ? `<circle cx="${ax.toFixed(1)}" cy="${ay.toFixed(1)}" r="13.5" fill="none" stroke="${ring}" stroke-width="2.5"/><image href="data:image/svg+xml;utf8,${encodeURIComponent(CH.avatarSvg(look, '', { full: false }))}" x="${(ax - 12).toFixed(1)}" y="${(ay - 12).toFixed(1)}" width="24" height="24" clip-path="circle(11px)"/>`
           : `<circle cx="${ax.toFixed(1)}" cy="${ay.toFixed(1)}" r="9" fill="${colorOf(a.id)}" stroke="${ring}" stroke-width="2.5"/>`;
         nodes += `<g class="node" data-act="agent" data-id="${esc(a.id)}"><circle cx="${ax.toFixed(1)}" cy="${ay.toFixed(1)}" r="16" fill="${colorOf(a.id)}" opacity=".18"/>${face}<text x="${ax.toFixed(1)}" y="${(ay + 27).toFixed(1)}">${esc(a.name)}</text></g>`;
       });

@@ -60,6 +60,10 @@ const DEFAULT_STATE = () => ({
       id: 'atlas', name: 'Atlas', role: 'Planner', station: 'ops',
       instructions: 'You break goals into concrete plans, checklists and schedules. Be practical, estimate time, and order steps so the user can start today.',
     },
+    {
+      id: 'echo', name: 'Echo', role: 'Social media manager', station: 'studio',
+      instructions: 'You plan and write social media posts: scroll-stopping hooks, captions sized for each platform, relevant hashtags and a simple posting schedule. Match the brand voice asked for and suggest an image or video idea for each post.',
+    },
   ],
   workflows: [
     {
@@ -124,7 +128,7 @@ function event(level, agent, msg) {
 
 const agentById = (id) => state.agents.find((a) => a.id === id);
 // Agent Builder fields (mirrors cleanLook in characters.js).
-const LOOK_OPTS = { shape: ['round', 'square', 'hex', 'tall', 'wide', 'helm', 'mech', 'sentinel', 'drone'], eyes: ['dot', 'big', 'happy', 'sleepy', 'glasses', 'wink', 'owl', 'visor', 'optics', 'scanner', 'vvisor', 'cyclops'], mouth: ['smile', 'grin', 'o', 'flat', 'cat', 'grille', 'none', 'faceplate', 'vent'], top: ['none', 'antenna', 'twin', 'dish', 'ears', 'fox', 'owl', 'leaf', 'star', 'bolt', 'toque', 'tuft', 'halo', 'fins', 'crest', 'sensors', 'horns'], body: ['none', 'shoulders', 'chassis', 'wings'] };
+const LOOK_OPTS = { shape: ['round', 'square', 'hex', 'tall', 'wide', 'helm', 'mech', 'sentinel', 'drone'], eyes: ['dot', 'big', 'happy', 'sleepy', 'glasses', 'wink', 'owl', 'visor', 'optics', 'scanner', 'vvisor', 'cyclops'], mouth: ['smile', 'grin', 'o', 'flat', 'cat', 'grille', 'none', 'faceplate', 'vent'], top: ['none', 'antenna', 'twin', 'dish', 'ears', 'fox', 'owl', 'leaf', 'star', 'bolt', 'toque', 'tuft', 'halo', 'fins', 'crest', 'sensors', 'horns'], body: ['none', 'shoulders', 'chassis', 'wings', 'vehicle', 'jet'] };
 function custom(b) {
   const out = {};
   if ('look' in b) {

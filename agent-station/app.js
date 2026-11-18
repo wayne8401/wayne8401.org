@@ -1208,7 +1208,10 @@
   ];
   const FORGE_STEPS = ['🎨 Look', '🪪 Identity', '🎛️ Personality', '🧠 Brain', '🚀 Build'];
   const rnd = (arr) => arr[Math.floor(Math.random() * arr.length)];
-  const randomLook = () => { const O = CH.OPTIONS; return { shape: rnd(O.shape), eyes: rnd(O.eyes), mouth: rnd(O.mouth), top: rnd(O.top), bg: rnd(O.bg), fg: rnd(O.fg), accent: rnd(O.accent), cheeks: Math.random() < 0.4 }; };
+  const randomLook = (robot = true) => {
+    const O = CH.OPTIONS, R = robot ? CH.ROBOT : O;
+    return { shape: rnd(R.shape), eyes: rnd(R.eyes), mouth: rnd(R.mouth), top: rnd(R.top), body: rnd(robot ? R.body : O.body), bg: rnd(O.bg), fg: rnd(robot ? O.fg.slice(0, 9) : O.fg), accent: rnd(O.accent), cheeks: !robot && Math.random() < 0.4 };
+  };
 
   function personalityText(t, name) {
     const lines = [];
@@ -1254,9 +1257,10 @@
     const steps = `<div class="fsteps">${FORGE_STEPS.map((t, i) => `<button type="button" class="fstep ${i === f.step ? 'on' : i < f.step ? 'done' : ''}" data-act="fb-step" data-id="${i}">${t}</button>`).join('')}</div>`;
     let body = '';
     if (f.step === 0) {
-      body = `<div class="row" style="margin-bottom:8px"><button type="button" class="btn ghost small" data-act="fb-random">🎲 Randomize</button><label class="hf"><input type="checkbox" data-fbcheck="cheeks" ${f.look.cheeks ? 'checked' : ''}> Rosy cheeks</label></div>
-        ${partRow('Head', 'shape')}${partRow('Eyes', 'eyes')}${partRow('Mouth', 'mouth')}${partRow('Top', 'top')}
-        ${swatchRow('Face', 'fg')}${swatchRow('Backdrop', 'bg')}${swatchRow('Accent', 'accent')}`;
+      body = `<div class="row" style="margin-bottom:8px"><button type="button" class="btn small" data-act="fb-random" data-id="robot">🤖 Random robot</button><button type="button" class="btn ghost small" data-act="fb-random" data-id="classic">🎲 Random classic</button></div>
+        ${partRow('Helmet / head', 'shape')}${partRow('Optics / eyes', 'eyes')}${partRow('Jaw / mouth', 'mouth')}${partRow('Top gear', 'top')}${partRow('Armor', 'body')}
+        ${swatchRow('Armor color', 'fg')}${swatchRow('Backdrop', 'bg')}${swatchRow('Glow / accent', 'accent')}
+        <label class="hf" style="margin-top:6px"><input type="checkbox" data-fbcheck="cheeks" ${f.look.cheeks ? 'checked' : ''}> Rosy cheeks</label>`;
     } else if (f.step === 1) {
       body = `<label class="field">Name<span class="row"><input data-fb="name" maxlength="40" value="${esc(f.name)}" placeholder="e.g. Sprocket"><button type="button" class="btn ghost narrow" data-act="fb-name" aria-label="Random name">🎲</button></span></label>
         <div class="flabel">Job</div>
@@ -1288,14 +1292,14 @@
     const nav = `<div class="row fnav">${f.step ? '<button type="button" class="btn ghost" data-act="fb-prev">‹ Back</button>' : ''}${f.step < FORGE_STEPS.length - 1 ? '<button type="button" class="btn" data-act="fb-next">Next ›</button>' : ''}</div>`;
     return `<form data-form="forge" class="forge" onsubmit="return false"><h3>🛠️ ${f.editId ? 'Customize' : 'Agent Builder'}</h3>
       <div id="forgePreview">${forgePreview(f)}</div>${steps}<div class="fbody">${body}</div>${nav}
-      ${ui.forgeBuilding ? `<div class="assembling"><div class="parts">${forgeAvatar(f.look, 'xl')}</div><p>⚙️ Assembling ${esc(f.name)}…</p></div>` : ''}</form>`;
+      ${ui.forgeBuilding ? `<div class="assembling transforming"><div class="parts">${forgeAvatar(f.look, 'xl')}</div><p class="tsteps"><span>🔩 Bolting on armor…</span><span>👁️ Calibrating optics…</span><span>⚡ ${esc(f.name)} online!</span></p></div>` : ''}</form>`;
   }
 
   async function forgeBuild() {
     const f = ui.forge; if (!f) return;
     if (!f.name.trim()) { f.step = 1; renderSheet(); return toast('Give your agent a name', 'bad'); }
     ui.forgeBuilding = true; renderSheet();
-    await new Promise((r) => setTimeout(r, 1300)); // let the assembly animation play
+    await new Promise((r) => setTimeout(r, 2200)); // let the transform animation play
     const body = { name: f.name.trim(), role: f.role.trim() || 'Assistant', station: f.station, instructions: forgeInstructions(f), look: CH.cleanLook(f.look), traits: f.traits, pitch: f.pitch, model: f.model };
     const a = await act(() => (f.editId ? call('PATCH', `agents/${encodeURIComponent(f.editId)}`, body) : call('POST', 'agents', body)), f.editId ? 'Changes saved 🎨' : `${f.name} is ready for work 🚀`);
     ui.forgeBuilding = false;
@@ -1384,7 +1388,7 @@
 
   /* ------------------------------------------------------- characters */
   function gallerySheet() {
-    const tags = [...new Set(CH.CHARACTERS.map((c) => c.tag))];
+    const tags = [...new Set(CH.CHARACTERS.map((c) => c.tag))].sort((a, b) => (b === 'Robots') - (a === 'Robots'));
     return `<h3>✨ Character gallery</h3>
       <p class="muted">Original characters you can add as agents. Free to use: the characters and avatars are CC0, and their studio voices are Apache-2.0.</p>
       <button class="card gcard custom builder-cta" data-act="forge"><span class="emo">🛠️</span><div class="grow"><b>Build your own agent</b><p class="muted tiny">Design its look, name, job, personality, brain and voice</p></div><span class="muted">›</span></button>
@@ -1669,7 +1673,7 @@
     'fb-next': () => { ui.forge.step = Math.min(FORGE_STEPS.length - 1, ui.forge.step + 1); renderSheet(); $('.sheet-panel').scrollTop = 0; },
     'fb-prev': () => { ui.forge.step = Math.max(0, ui.forge.step - 1); renderSheet(); $('.sheet-panel').scrollTop = 0; },
     'fb-pick': (v) => { const [k, val] = v.split(':'); ui.forge.look[k] = val; renderSheet(); },
-    'fb-random': () => { ui.forge.look = randomLook(); renderSheet(); },
+    'fb-random': (kind) => { ui.forge.look = randomLook(kind !== 'classic'); renderSheet(); },
     'fb-name': () => { ui.forge.name = rnd(NAME_IDEAS); renderSheet(); },
     'fb-role': (i) => { const r = ROLE_IDEAS[+i]; Object.assign(ui.forge, { role: r.role, base: r.base, station: S.stations.some((s) => s.id === r.station) ? r.station : ui.forge.station }); renderSheet(); },
     'fb-station': (id) => { ui.forge.station = id; renderSheet(); },

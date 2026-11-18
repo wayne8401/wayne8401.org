@@ -534,3 +534,21 @@ details.history > summary h2::after { content: '▸'; color: var(--muted); font-
 details.history[open] > summary h2::after { transform: rotate(90deg); }
 .taskcard.hist { padding-top: 10px; padding-bottom: 10px; }
 .agentlog { max-height: 340px; overflow-y: auto; }
+
+/* Transforming build: the robot's parts fly in and lock together */
+.transforming .avatar.xl { animation: none; }
+.transforming svg g { transform-box: fill-box; transform-origin: center; }
+.transforming .p-body { animation: t-body .7s cubic-bezier(.2,.9,.3,1.3) both; }
+.transforming .p-head { animation: t-head .7s .35s cubic-bezier(.2,.9,.3,1.3) both; }
+.transforming .p-top  { animation: t-top .6s .8s cubic-bezier(.2,.9,.3,1.4) both; }
+.transforming .p-face { animation: t-face .5s 1.2s ease-out both; }
+@keyframes t-body { from { transform: translateY(40px) scaleX(.2); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes t-head { from { transform: translateY(-60px) rotate(-90deg) scale(.4); opacity: 0; } 70% { transform: translateY(4px) rotate(4deg) scale(1.05); opacity: 1; } to { transform: none; } }
+@keyframes t-top  { from { transform: translateY(-40px) scaleY(0); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes t-face { 0% { opacity: 0; filter: brightness(3); } 40% { opacity: 1; } 60% { opacity: .2; } to { opacity: 1; filter: none; } }
+.tsteps { display: grid; place-items: center; height: 1.6em; }
+.tsteps span { grid-area: 1 / 1; opacity: 0; animation: tstep .7s both; }
+.tsteps span:nth-child(1) { animation-delay: 0s; } .tsteps span:nth-child(2) { animation-delay: .7s; } .tsteps span:nth-child(3) { animation-delay: 1.4s; animation-fill-mode: forwards; animation-name: tstepLast; }
+@keyframes tstep { 0% { opacity: 0; transform: translateY(6px); } 25%, 75% { opacity: 1; transform: none; } 100% { opacity: 0; } }
+@keyframes tstepLast { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .transforming svg g, .tsteps span { animation: none !important; opacity: 1; } .tsteps span:not(:last-child) { display: none; } }

@@ -124,7 +124,7 @@ function event(level, agent, msg) {
 
 const agentById = (id) => state.agents.find((a) => a.id === id);
 // Agent Builder fields (mirrors cleanLook in characters.js).
-const LOOK_OPTS = { shape: ['round', 'square', 'hex', 'tall', 'wide'], eyes: ['dot', 'big', 'happy', 'sleepy', 'glasses', 'wink', 'owl', 'visor'], mouth: ['smile', 'grin', 'o', 'flat', 'cat', 'grille', 'none'], top: ['none', 'antenna', 'twin', 'dish', 'ears', 'fox', 'owl', 'leaf', 'star', 'bolt', 'toque', 'tuft', 'halo'] };
+const LOOK_OPTS = { shape: ['round', 'square', 'hex', 'tall', 'wide', 'helm', 'mech', 'sentinel', 'drone'], eyes: ['dot', 'big', 'happy', 'sleepy', 'glasses', 'wink', 'owl', 'visor', 'optics', 'scanner', 'vvisor', 'cyclops'], mouth: ['smile', 'grin', 'o', 'flat', 'cat', 'grille', 'none', 'faceplate', 'vent'], top: ['none', 'antenna', 'twin', 'dish', 'ears', 'fox', 'owl', 'leaf', 'star', 'bolt', 'toque', 'tuft', 'halo', 'fins', 'crest', 'sensors', 'horns'], body: ['none', 'shoulders', 'chassis', 'wings'] };
 function custom(b) {
   const out = {};
   if ('look' in b) {

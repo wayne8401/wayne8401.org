@@ -1988,3 +1988,26 @@
     else if (!store.get('toured', false)) setTimeout(startTour, 700);
   })();
 })();
+
+/* Keep the tab bar clear of badges the host injects at the bottom of the page (e.g. "Powered by Netlify").
+   We don't hide them; we measure how much of the bottom edge a foreign element covers and lift our UI above it. */
+(() => {
+  const OURS = ['header.top', '#view', 'nav.tabs', '#sheet', '#toast', '#stars'];
+  const isOurs = (el) => !el || el === document.body || el === document.documentElement || OURS.some((s) => el.closest?.(s));
+  function measure() {
+    const W = innerWidth, H = innerHeight; let top = H;
+    for (let y = H - 3; y > H - 160; y -= 6) {
+      for (const fx of [0.12, 0.35, 0.5, 0.65, 0.88]) {
+        const el = document.elementFromPoint(W * fx, y);
+        if (!isOurs(el)) { top = Math.min(top, y); break; }
+      }
+    }
+    const h = top < H ? Math.ceil(H - top) + 6 : 0;
+    const cur = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--badge')) || 0;
+    if (Math.abs(h - cur) > 4) document.documentElement.style.setProperty('--badge', h + 'px');
+  }
+  let t; const soon = () => { clearTimeout(t); t = setTimeout(measure, 150); };
+  addEventListener('load', soon); addEventListener('resize', soon);
+  [800, 2000, 4000, 8000].forEach((ms) => setTimeout(measure, ms));
+  try { new MutationObserver(soon).observe(document.body, { childList: true }); } catch {}
+})();

@@ -431,8 +431,9 @@
       <div class="templates" id="templates">
         ${TEMPLATES.map((t, i) => `<button class="tpl card" data-act="template" data-id="${i}"><span class="emo">${t.icon}</span><b>${esc(t.title)}</b><span class="muted">${esc(agentName(t.agent))}</span></button>`).join('')}
       </div>
-      <h2>Your tasks</h2>
-      <div class="list" data-region="tasks"></div>`,
+      <div class="h2row"><h2>Your tasks</h2>${S.mode === 'phone' ? '<button class="link" data-act="archive-done">🗄 Clear finished</button>' : ''}</div>
+      <div class="list" data-region="tasks"></div>
+      <div data-region="history"></div>`,
 
     flows: () => `
       <div class="intro card"><p>A <b>workflow</b> is a team play: each step is done by an agent, and its result is handed to the next step automatically.</p></div>
@@ -517,8 +518,19 @@
     },
     feed: () => eventsHtml(S.events.slice(0, 6)) + (S.events.length > 6 ? '<button class="btn ghost" data-act="all-events">See all activity</button>' : ''),
     picker: () => S.agents.map((a) => `<button type="button" class="pick ${ui.draftAgent === a.id ? 'active' : ''}" data-act="pick-agent" data-id="${esc(a.id)}">${avatar(a, 'sm')}<span>${esc(a.name)}<small>${esc(shortModel(a.model))}${isFree(a.model) ? ' · free' : ''}</small></span></button>`).join(''),
+    history() {
+      const old = S.tasks.filter(inHistory);
+      if (!old.length) return '';
+      const who = [...new Set(old.map((t) => t.agent))];
+      const f = ui.histAgent && who.includes(ui.histAgent) ? ui.histAgent : '';
+      const list = old.filter((t) => !f || t.agent === f);
+      return `<details class="history" ${ui.histOpen ? 'open' : ''} data-toggle="hist"><summary><h2>📚 Task history <span class="muted">${old.length}</span></h2></summary>
+        <p class="muted tiny" style="margin:-4px 2px 10px">Finished tasks move here after a day, or when you tap <b>Clear finished</b>. Every result is kept: tap one to open it, follow up or put it back.</p>
+        ${who.length > 1 ? `<div class="chips" style="margin-bottom:10px"><button class="chip ${f ? '' : 'active'}" data-act="hist-agent" data-id="">All</button>${who.map((id) => `<button class="chip ${f === id ? 'active' : ''}" data-act="hist-agent" data-id="${esc(id)}">${esc(agentName(id))}</button>`).join('')}</div>` : ''}
+        <div class="list">${list.map((t) => histRow(t, true)).join('')}</div></details>`;
+    },
     tasks() {
-      return S.tasks.map((t) => {
+      return S.tasks.filter((t) => !inHistory(t)).map((t) => {
         const a = agentById(t.agent) || { id: t.agent, name: t.agent };
         const lastLog = t.log?.at(-1)?.msg;
         return `<button class="card taskcard" data-act="task" data-id="${esc(t.id)}">
@@ -526,7 +538,7 @@
           ${t.status === 'running' ? `<p class="muted live-line">▸ ${esc(lastLog || 'Starting…')}</p>${bar(agentById(t.agent)?.progress)}` : ''}
           ${t.status === 'done' && t.files?.length ? `<p class="muted">📎 ${t.files.map(esc).join(', ')}</p>` : ''}
         </button>`;
-      }).join('') || empty('No tasks yet. Pick an agent, write a prompt (or tap a template) and press <b>Send</b>.');
+      }).join('') || empty(S.tasks.length ? 'All caught up. Finished tasks are in <b>📚 Task history</b> below.' : 'No tasks yet. Pick an agent, write a prompt (or tap a template) and press <b>Send</b>.');
     },
     flows() {
       return S.workflows.map((w) => {
@@ -603,6 +615,15 @@
       <div class="list">${S.plugins.map((p) => `
         <div class="card mem"><span class="emo">${p.icon}</span><div class="grow"><b>${esc(p.label)}</b><p class="muted tiny">${esc(p.description)}</p></div>
           <button class="toggle ${p.enabled ? 'on' : ''}" data-act="plugin-toggle" data-id="${esc(p.name)}" role="switch" aria-checked="${p.enabled}" aria-label="${esc(p.label)}"><i></i></button></div>`).join('') || empty('No plugins loaded.')}</div>`;
+  }
+
+  const DAY = 24 * 3600 * 1000;
+  const finished = (t) => t.status === 'done' || t.status === 'error';
+  /** Finished tasks leave the Tasks list for history when archived, or a day after they finish (unless put back). */
+  function inHistory(t) { return finished(t) && !t.restored && (t.archived || Date.now() - (t.finishedAt || t.createdAt || 0) > DAY); }
+  function histRow(t, withAgent) {
+    const a = agentById(t.agent) || { id: t.agent, name: t.agent };
+    return `<button class="card taskcard hist" data-act="task" data-id="${esc(t.id)}"><div class="wf-head">${withAgent ? avatar(a, 'sm') : ''}<div class="grow"><b>${esc(t.title || t.prompt.split('\n')[0].slice(0, 80))}</b><p class="muted tiny">${withAgent ? esc(a.name) + ' · ' : ''}${ago(t.finishedAt || t.createdAt)}${t.files?.length ? ' · 📎 ' + t.files.length : ''}</p></div>${pill(t.status)}</div></button>`;
   }
 
   function desk(a) {
@@ -753,7 +774,7 @@
   /* ============================================================= sheets */
   function agentSheet(a) {
     const st = S.stations.find((s) => s.id === a.station);
-    const tasks = S.tasks.filter((t) => t.agent === a.id).slice(0, 5);
+    const tasks = S.tasks.filter((t) => t.agent === a.id);
     const mems = S.memories.filter((m) => m.agent === a.id).slice(0, 5);
     const skills = S.skills.filter((s) => s.author === a.id);
     return `
@@ -776,8 +797,8 @@
       ${isChatOnly(a.model) ? `<p class="muted tiny" style="margin:-8px 0 12px">💬 ${esc(a.name)} is on a chat-only brain: it answers directly but can't save files or memories, or use plugins. Pick a 🛠 model for those.</p>` : ''}
       <div class="row"><button class="btn" data-act="task-for" data-id="${esc(a.id)}">✍️ Task</button><button class="btn ghost" data-act="voice-open" data-id="${esc(a.id)}">🎙️ Talk</button><button class="btn ghost" data-act="forge" data-id="${esc(a.id)}">🎨 Customize</button></div>
       ${a.instructions ? `<h2>How ${esc(a.name)} works</h2><div class="card"><p class="muted">${esc(a.instructions)}</p></div>` : ''}
-      <h2>Recent tasks</h2>
-      <div class="list">${tasks.map((t) => `<button class="card taskcard" data-act="task" data-id="${esc(t.id)}"><div class="wf-head"><span class="grow">${esc(t.title || t.prompt.slice(0, 70))}</span>${pill(t.status)}</div></button>`).join('') || empty('No tasks yet')}</div>
+      <h2>📜 ${esc(a.name)}'s log <span class="muted">${tasks.length}</span></h2>
+      <div class="list agentlog">${tasks.map((t) => histRow(t, false)).join('') || empty('No tasks yet')}</div>
       ${mems.length ? `<h2>What ${esc(a.name)} remembers</h2><div class="card">${md(mems.map((m) => '- ' + m.fact).join('\n'))}</div>` : ''}`;
   }
 
@@ -790,7 +811,8 @@
       <div class="card"><ol class="timeline">${(t.log || []).map((l) => `<li><span class="mono muted">${clock(l.ts)}</span> ${esc(l.msg)}</li>`).join('') || `<li class="muted">${t.status === 'queued' ? 'Waiting for the agent to finish its current task…' : 'Starting…'}</li>`}${t.status === 'running' ? '<li class="pulse-dot">working…</li>' : ''}</ol></div>
       ${t.result ? `<h2>${t.status === 'error' ? 'What went wrong' : 'Result'}</h2><div class="card ${t.status === 'error' ? 'err' : ''}">${md(t.result)}</div>` : ''}
       ${t.files?.length ? `<h2>Files</h2><div class="list">${t.files.map((f) => `<button class="card file" data-act="file" data-id="${esc(f)}"><span class="emo">📄</span><b class="grow">${esc(f)}</b><span class="muted">open ›</span></button>`).join('')}</div>` : ''}
-      ${t.status === 'done' || t.status === 'error' ? `<div class="row" style="margin-top:16px"><button class="btn" data-act="follow-up" data-id="${esc(t.id)}">↩ Follow up</button><button class="btn ghost" data-act="teach" data-id="${esc(t.id)}">🎓 Save as skill</button></div>` : ''}
+      ${t.status === 'done' || t.status === 'error' ? `<div class="row" style="margin-top:16px"><button class="btn" data-act="follow-up" data-id="${esc(t.id)}">↩ Follow up</button><button class="btn ghost" data-act="teach" data-id="${esc(t.id)}">🎓 Save as skill</button></div>
+        ${S.mode === 'phone' ? (inHistory(t) ? `<button class="btn ghost" style="margin-top:8px" data-act="task-restore" data-id="${esc(t.id)}">↩ Put back in Tasks</button>` : `<button class="btn ghost" style="margin-top:8px" data-act="task-archive" data-id="${esc(t.id)}">🗄 Move to history</button>`) : ''}` : ''}
       ${t.tokens ? `<p class="muted tiny center" style="margin-top:14px">${fmtNum(t.tokens)} tokens · ~$${(t.cost || 0).toFixed(3)}${S.mode === 'demo' ? ' (pretend)' : ''}</p>` : ''}`;
   }
 
@@ -1559,6 +1581,10 @@
     'go-tasks': () => go('tasks'),
     agent: (id) => openSheet('agent', id),
     task: (id) => openSheet('task', id),
+    'archive-done': () => act(() => call('POST', 'tasks/archive', {}), 'Finished tasks moved to 📚 Task history'),
+    'task-archive': (id) => { closeSheet(); act(() => call('POST', `tasks/${encodeURIComponent(id)}/archive`, {}), 'Moved to 📚 Task history'); },
+    'task-restore': (id) => { closeSheet(); act(() => call('POST', `tasks/${encodeURIComponent(id)}/restore`, {}), 'Back in your tasks'); },
+    'hist-agent': (id) => { ui.histAgent = id; ui.histOpen = true; regionCache.clear(); update(); },
     skill: (id) => openSheet('skill', id),
     station: (id) => { ui.stationFilter = id; if (ui.tab !== 'station') go('station'); else update(); },
     'all-events': () => openSheet('events'),
@@ -1882,6 +1908,7 @@
   }
 
   /* ============================================================ events */
+  document.addEventListener('toggle', (e) => { if (e.target.matches?.('details[data-toggle=hist]')) ui.histOpen = e.target.open; }, true);
   document.addEventListener('click', (e) => {
     const tb = e.target.closest('[data-tour]');
     if (tb) {

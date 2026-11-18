@@ -798,7 +798,7 @@ You are running on a chat-only brain: you can't use tools, browse, save files or
           progress: l.progress || 0, tokens: u.tokens, cost: +u.cost.toFixed(4) };
       }),
       workflows: state.workflows.map((wf) => { const r = run(wf); return { ...wf, status: r ? r.status : 'idle', startedAt: r?.startedAt, output: r?.output, steps: wf.steps.map((s, i) => ({ ...s, status: r?.steps[i]?.status || 'pending', duration: r?.steps[i]?.duration || 0, task: r?.steps[i]?.task })) }; }),
-      tasks: state.tasks.slice(0, 60), skills: state.skills, memories: state.memories, events: state.events.slice(0, 80), files,
+      tasks: state.tasks.slice(0, 150), skills: state.skills, memories: state.memories, events: state.events.slice(0, 80), files,
     };
   }
 
@@ -807,6 +807,18 @@ You are running on a chat-only brain: you can't use tools, browse, save files or
   const routes = [
     ['GET', /^status$/, async () => { await discover(); return status(); }],
     ['POST', /^tasks$/, (_, b) => createTask(b.agent, b.prompt, { ...(b.voice ? { voice: true } : {}), ...(b.title ? { title: String(b.title).slice(0, 120) } : {}) })],
+    ['POST', /^tasks\/archive$/, (_, b) => {
+      // move finished tasks to history (all finished ones, or the ids given)
+      const ids = Array.isArray(b.ids) ? new Set(b.ids) : null; let n = 0;
+      for (const t of state.tasks) if ((t.status === 'done' || t.status === 'error') && !t.archived && (!ids || ids.has(t.id))) { t.archived = true; n++; }
+      save(); return { ok: true, count: n };
+    }],
+    ['POST', /^tasks\/([^/]+)\/(archive|restore)$/, ([id, op]) => {
+      const t = state.tasks.find((x) => x.id === id); if (!t) throw httpError('No such task');
+      if (op === 'archive') { if (t.status === 'running' || t.status === 'queued') throw httpError('This task is still working'); t.archived = true; t.restored = false; }
+      else { t.archived = false; t.restored = true; } // restored = stays in Tasks even when old
+      save(); return { ok: true };
+    }],
     ['POST', /^improve-prompt$/, async (_, b) => ({ prompt: await improvePrompt(String(b.prompt || '').slice(0, 4000), b.agent) })],
     ['POST', /^workflows$/, (_, b) => {
       const steps = (b.steps || []).filter((s) => agentById(s.agent) && s.instructions);

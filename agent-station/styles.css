@@ -524,3 +524,13 @@ code.sel { user-select: all; word-break: break-all; }
 
 .desk.ghostdesk { border-style: dashed; border-color: rgba(255,183,166,.55); opacity: .9; }
 .desk.ghostdesk .say { background: rgba(255,183,166,.18); }
+
+/* Task history */
+details.history { margin-top: 18px; }
+details.history > summary { list-style: none; cursor: pointer; }
+details.history > summary::-webkit-details-marker { display: none; }
+details.history > summary h2 { display: inline-flex; gap: 8px; align-items: baseline; margin: 0 0 10px; }
+details.history > summary h2::after { content: '▸'; color: var(--muted); font-size: 12px; transition: transform .2s; }
+details.history[open] > summary h2::after { transform: rotate(90deg); }
+.taskcard.hist { padding-top: 10px; padding-bottom: 10px; }
+.agentlog { max-height: 340px; overflow-y: auto; }

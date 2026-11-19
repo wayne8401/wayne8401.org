@@ -60,7 +60,7 @@
       { id: 'wf_plan', name: 'Goal → Action plan', trigger: 'manual', description: 'Atlas turns a goal into a plan, then Quill makes a friendly checklist.', input: 'start a small weekend baking business',
         steps: [{ name: 'Make a plan', agent: 'atlas', instructions: 'Turn the goal below into a step-by-step plan with milestones and rough time estimates.' }, { name: 'Write the checklist', agent: 'quill', instructions: 'Rewrite the plan as a short, encouraging checklist a beginner can follow. Save it as a markdown file.' }] },
     ],
-    tasks: [], runs: [], skills: [], memories: [], events: [], files: {}, usage: {},
+    tasks: [], runs: [], approvals: [], skills: [], memories: [], events: [], files: {}, usage: {},
     settings: { defaultModel: '', plugins: {}, downloaded: {} },
   });
   let state = DEFAULT();
@@ -71,6 +71,7 @@
     try {
       const saved = await idb.get('state');
       if (saved) state = { ...DEFAULT(), ...saved, settings: { ...DEFAULT().settings, ...(saved.settings || {}) } };
+      state.approvals ||= [];
       if (!state.settings.echoAdded) { if (!state.agents.some((x) => x.id === 'echo')) state.agents.push(ECHO()); state.settings.echoAdded = true; } // Echo joined in a later version
       for (const t of state.tasks) if ((t.status === 'running' || t.status === 'queued') && t.agent !== 'muse') { t.status = 'error'; t.result = 'The app was closed before this task finished. Keep the app open while agents work.'; }
       for (const r of state.runs) if (r.status === 'running') { r.status = 'error'; r.steps.forEach((st) => { if (st.status === 'running') st.status = 'error'; }); }
@@ -313,6 +314,7 @@
     { name: 'remember', description: 'Save a durable fact for future tasks (preferences, decisions, results). Never store secrets.', parameters: obj({ fact: { type: 'string' }, scope: { type: 'string', enum: ['agent', 'shared'] } }) },
     { name: 'recall', description: 'Search saved memories by keywords.', parameters: obj({ query: { type: 'string' } }) },
     { name: 'save_skill', description: 'Learn a skill: save a reusable playbook for this kind of task. Use when asked to learn something, or after a task the user will likely repeat.', parameters: obj({ name: { type: 'string' }, description: { type: 'string' }, instructions: { type: 'string' } }) },
+    { name: 'queue_post', description: 'Propose a social media post or message for the owner to approve. NOTHING is published: the owner reviews it in Approvals and posts it themselves. Always use this instead of posting.', parameters: obj({ platform: { type: 'string', description: 'TikTok, Instagram, Facebook, Etsy, Shopify, email…' }, text: { type: 'string', description: 'The full post text, hashtags included' }, note: { type: 'string', description: 'Image idea, best time to post or link; empty string if none' } }) },
     { name: 'use_skill', description: 'Load the full instructions of a saved skill before doing a task it covers.', parameters: obj({ name: { type: 'string' } }) },
     { name: 'write_file', description: "Save a deliverable (report, draft, plan) to the station's files so the user can open it.", parameters: obj({ filename: { type: 'string' }, content: { type: 'string' } }) },
     { name: 'read_file', description: "Read a file from the station's files.", parameters: obj({ filename: { type: 'string' } }) },
@@ -360,6 +362,45 @@
         const r = await (await fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title)}`)).json();
         return `${r.title}: ${r.extract || 'No summary.'}\nSource: ${r.content_urls?.mobile?.page || r.content_urls?.desktop?.page || ''}${s[1].length > 1 ? `\nRelated: ${s[1].slice(1).join(', ')}` : ''}`;
       } },
+    { name: 'plugin_store_profit', label: 'Store profit', icon: '💵', description: 'Profit calculator for store products: give a selling price and a base cost; returns profit in dollars, margin percent and markup percent.',
+      parameters: obj({ price: { type: 'number', description: 'Selling price in dollars, e.g. 34.99' }, cost: { type: 'number', description: 'Base cost in dollars, e.g. 13' } }),
+      run: async ({ price, cost }) => {
+        const p = Number(price), c = Number(cost);
+        if (!Number.isFinite(p) || !Number.isFinite(c) || p <= 0 || c < 0) return 'Give a selling price above 0 and a base cost of 0 or more.';
+        const profit = p - c;
+        return `Price $${p.toFixed(2)}, cost $${c.toFixed(2)}: profit $${profit.toFixed(2)} per sale, margin ${(profit / p * 100).toFixed(2)}%${c > 0 ? `, markup ${(profit / c * 100).toFixed(2)}%` : ''}.${profit < 0 ? ' This sells at a loss.' : ''}`;
+      } },
+    { name: 'plugin_drop_countdown', label: 'Drop countdown', icon: '⏳', description: 'How many days and hours are left until a date, such as a product drop or Black Friday. Counts from midnight Central time unless a time zone is given.',
+      parameters: { type: 'object', properties: { date: { type: 'string', description: 'Target date, best as YYYY-MM-DD (optionally "YYYY-MM-DD HH:MM"), e.g. 2026-11-27' }, timezone: { type: 'string', description: 'IANA time zone, default America/Chicago' } }, required: ['date'] },
+      run: async ({ date, timezone }) => {
+        const tz = timezone || 'America/Chicago';
+        const off = (at) => { const v = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: tz, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }).formatToParts(at).map((x) => [x.type, x.value])); return Date.UTC(v.year, v.month - 1, v.day, v.hour, v.minute, v.second) - at.getTime(); };
+        try { new Intl.DateTimeFormat('en-US', { timeZone: tz }); } catch { return `Unknown time zone "${tz}".`; }
+        let t; const m = String(date).trim().match(/^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{1,2}):(\d{2}))?$/);
+        if (m) { const g = Date.UTC(+m[1], m[2] - 1, +m[3], +(m[4] || 0), +(m[5] || 0)); t = new Date(g - off(new Date(g - off(new Date(g))))); }
+        else t = new Date(date);
+        if (Number.isNaN(t.getTime())) return `Couldn't read the date "${date}". Use YYYY-MM-DD.`;
+        const label = t.toLocaleString('en-US', { timeZone: tz, dateStyle: 'full', timeStyle: 'short' });
+        const ms = t - Date.now();
+        if (ms <= 0) { const ago = Math.floor(-ms / 36e5); return `That moment (${label}) has already passed, ${Math.floor(ago / 24)} days ${ago % 24} hours ago.`; }
+        const h = Math.floor(ms / 36e5);
+        return `${Math.floor(h / 24)} days and ${h % 24} hours left until ${label} (${tz}).`;
+      } },
+    { name: 'plugin_current_time', label: 'Current time', icon: '🕒', description: "Today's date and the current time in America/Chicago (Central time), or another time zone if asked.",
+      parameters: { type: 'object', properties: { timezone: { type: 'string', description: 'IANA time zone, default America/Chicago' } } },
+      run: async ({ timezone } = {}) => {
+        const tz = timezone || 'America/Chicago', now = new Date();
+        try { return `${now.toLocaleDateString('en-US', { timeZone: tz, weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}, ${now.toLocaleTimeString('en-US', { timeZone: tz, hour: 'numeric', minute: '2-digit', timeZoneName: 'short' })} (${tz}).`; }
+        catch { return `Unknown time zone "${tz}".`; }
+      } },
+    { name: 'plugin_best_time_to_post', label: 'Best time to post', icon: '📅', description: 'Suggested posting windows for TikTok, Instagram or Facebook (Central time), with a tip. General guidance, not account-specific.',
+      parameters: { type: 'object', properties: { platform: { type: 'string', enum: ['TikTok', 'Instagram', 'Facebook'] } }, required: ['platform'] },
+      run: async ({ platform }) => {
+        const G = { tiktok: ['TikTok', ['Tue–Thu 6–9 PM', 'Weekdays 7–9 AM', 'Sunday 7–9 PM'], 'Evenings and late nights do best; post 3–5 times a week and keep videos short.'], instagram: ['Instagram', ['Weekdays 11 AM–1 PM', 'Weekdays 7–9 PM', 'Tue–Thu is strongest'], 'Reels reach new people at midday; Stories and carousels do well in the evening.'], facebook: ['Facebook', ['Weekdays 9 AM–12 PM', 'Wed 11 AM–1 PM', 'Weekdays 1–3 PM'], 'Mornings on weekdays; weekends are usually quieter.'] };
+        const k = String(platform || '').toLowerCase().replace(/[^a-z]/g, ''); const g = G[/^tik/.test(k) ? 'tiktok' : /^(ig|insta)/.test(k) ? 'instagram' : /^(fb|face)/.test(k) ? 'facebook' : k];
+        if (!g) return 'Pick TikTok, Instagram or Facebook.';
+        return `Best times to post on ${g[0]} (Central time):\n- ${g[1].join('\n- ')}\nTip: ${g[2]}\nThese are common industry patterns. Check your own analytics after a few weeks and adjust.`;
+      } },
   ];
   const pluginOn = (p) => state.settings.plugins[p.name] !== false;
 
@@ -389,6 +430,12 @@
         const sk = { id, name: String(input.name), description: String(input.description || ''), instructions: String(input.instructions || ''), author: agent.id, updatedAt: now(), uses: ex?.uses || 0 };
         if (ex) Object.assign(ex, sk); else state.skills.unshift(sk);
         event('success', agent.id, `${ex ? 'Updated' : 'Learned'} skill “${sk.name}”`); return `Skill "${id}" saved.`;
+      }
+      case 'queue_post': {
+        const text = String(input.text || '').trim().slice(0, 4000); if (!text) return 'A post needs text.';
+        const it = { id: uid('ap'), agent: agent.id, platform: String(input.platform || 'Social').slice(0, 30), text, note: String(input.note || '').slice(0, 500), status: 'pending', createdAt: now() };
+        state.approvals.unshift(it); state.approvals.length = Math.min(state.approvals.length, 200);
+        event('info', agent.id, `Proposed a ${it.platform} post: waiting for your approval`); return 'Queued for the owner\'s approval. Nothing has been posted. Tell the owner it is waiting in Approvals.';
       }
       case 'use_skill': { const s = state.skills.find((k) => k.id === slug(input.name)); if (!s) return `No skill "${input.name}". Available: ${state.skills.map((k) => k.id).join(', ') || 'none'}`; s.uses = (s.uses || 0) + 1; event('info', agent.id, `Using skill “${s.name}”`); return `# Skill: ${s.name}\n${s.description}\n\n${s.instructions}`; }
       case 'write_file': { const n = safeName(input.filename); state.files[n] = { content: String(input.content ?? ''), updatedAt: now() }; task.files = [...new Set([...(task.files || []), n])]; event('success', agent.id, `Saved file ${n}`); return `Saved ${n}.`; }
@@ -792,7 +839,7 @@ You are running on a chat-only brain: you can't use tools, browse, save files or
       bridge: { enabled: !!bridgeCfg().enabled, hasToken: !!bridgeCfg().token, url: bridgeCfg().url || defaultBridgeUrl(), connected: bridge.connected, lastSync: bridge.lastSync, error: bridge.error, mcpUrl: `${(bridgeCfg().url || defaultBridgeUrl()).replace(/\/$/, '')}/mcp`, reports: (bridge.reports || []).slice(0, 5) },
       plugins: PLUGINS.map((p) => ({ name: p.name, label: p.label, icon: p.icon, description: p.description, enabled: pluginOn(p) })),
       voice: { stt: false }, clone: { available: false }, studio: { available: false, voices: [] }, voices: [],
-      stations: state.stations,
+      stations: state.stations, approvals: state.approvals.slice(0, 100),
       agents: state.agents.map((a) => {
         const l = live[a.id] || {}, u = state.usage[a.id] || { tokens: 0, cost: 0 };
         const queued = state.tasks.filter((t) => t.agent === a.id && t.status === 'queued').length;
@@ -824,6 +871,16 @@ You are running on a chat-only brain: you can't use tools, browse, save files or
       save(); return { ok: true };
     }],
     ['POST', /^improve-prompt$/, async (_, b) => ({ prompt: await improvePrompt(String(b.prompt || '').slice(0, 4000), b.agent) })],
+    ['POST', /^approvals\/(.+)$/, ([id], b) => {
+      const it = state.approvals.find((x) => x.id === id); if (!it) throw httpError('No such item');
+      if (typeof b.text === 'string' && b.text.trim()) it.text = b.text.slice(0, 4000);
+      if (b.decision === 'approve' || b.decision === 'reject') { it.status = b.decision === 'approve' ? 'approved' : 'rejected'; it.decidedAt = now(); event(b.decision === 'approve' ? 'success' : 'info', it.agent, `You ${it.status} a ${it.platform} post`); }
+      if (b.decision === 'posted') { it.status = 'posted'; it.decidedAt = now(); }
+      save(); return it;
+    }],
+    ['DELETE', /^approvals\/(.+)$/, ([id]) => { state.approvals = state.approvals.filter((x) => x.id !== id); save(); return { ok: true }; }],
+    ['POST', /^stations$/, (_, b) => { const name = String(b.name || '').trim().slice(0, 30); if (!name) throw httpError('A room needs a name'); let id = slug(name) || 'room'; if (state.stations.some((x) => x.id === id)) id += '-' + Math.random().toString(36).slice(2, 5); const st = { id, name, region: 'custom', custom: true }; state.stations.push(st); save(); return st; }],
+    ['DELETE', /^stations\/(.+)$/, ([id]) => { const st = state.stations.find((x) => x.id === id); if (!st || !st.custom) throw httpError('Only rooms you built can be removed'); if (state.agents.some((a) => a.station === id)) throw httpError('Move the agents out of this room first'); state.stations = state.stations.filter((x) => x.id !== id); save(); return { ok: true }; }],
     ['POST', /^workflows$/, (_, b) => {
       const steps = (b.steps || []).filter((s) => agentById(s.agent) && s.instructions);
       if (!b.name || !steps.length) throw httpError('A workflow needs a name and steps with an agent and instructions');

@@ -562,3 +562,44 @@ details.history[open] > summary h2::after { transform: rotate(90deg); }
 .desk .avatar.lg.bare { width: 76px; height: 76px; margin-top: -8px; }
 @keyframes scenein { from { opacity: 0; transform: scale(1.06); } to { opacity: 1; transform: none; } }
 .desk .avatar.lg { width: 60px; height: 60px; }
+
+/* ---- Living characters: blinking eyes, talking mouth, typing hands, calm idle ---- */
+.avatar.alive svg g { transform-box: fill-box; }
+.avatar.alive .p-eyes { transform-origin: 50% 50%; animation: ast-blink 4.6s ease-in-out infinite; }
+.avatar.alive .p-sway { transform-origin: 50% 100%; animation: ast-sway 6s ease-in-out infinite; }
+.avatar.alive .p-body { transform-origin: 50% 100%; animation: ast-breathe 4s ease-in-out infinite; }
+.avatar.alive.speaking .p-mouth { transform-origin: 50% 30%; animation: ast-talk .26s ease-in-out infinite alternate; }
+.desk.s-running .avatar.alive .p-arm-l { transform-origin: 50% 0; animation: ast-type-l .3s ease-in-out infinite alternate; }
+.desk.s-running .avatar.alive .p-arm-r { transform-origin: 50% 0; animation: ast-type-r .3s -.15s ease-in-out infinite alternate; }
+.desk.s-running .avatar.alive .p-sway { animation: ast-focus 1.4s ease-in-out infinite; }
+@keyframes ast-blink { 0%, 90%, 100% { transform: scaleY(1); } 94% { transform: scaleY(.08); } }
+@keyframes ast-sway { 0%, 100% { transform: rotate(-1.2deg); } 50% { transform: rotate(1.2deg); } }
+@keyframes ast-breathe { 0%, 100% { transform: scaleY(1); } 50% { transform: scaleY(1.02); } }
+@keyframes ast-talk { from { transform: scaleY(.65); } to { transform: scaleY(1.9); } }
+@keyframes ast-type-l { from { transform: rotate(0); } to { transform: rotate(-17deg) translateY(-1.3px); } }
+@keyframes ast-type-r { from { transform: rotate(0); } to { transform: rotate(17deg) translateY(-1.3px); } }
+@keyframes ast-focus { 0%, 100% { transform: rotate(0) translateY(0); } 50% { transform: rotate(1.6deg) translateY(.6px); } }
+.vchar { display: flex; justify-content: center; margin: 4px 0 8px; }
+.vchar .avatar.xl { width: 104px; height: 104px; }
+
+/* Forge Look step: quick looks and robot/person switch */
+.fpresets { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; padding: 2px 2px 8px; }
+.fpresets::-webkit-scrollbar { display: none; }
+.fpreset { flex: none; display: flex; flex-direction: column; align-items: center; gap: 4px; width: 78px; padding: 6px 4px; border-radius: 14px; border: 1px solid rgba(255,255,255,.12); background: var(--panel-2); color: var(--text, #e9eefc); font-size: 11px; cursor: pointer; }
+.fpreset .avatar.sm { width: 44px; height: 44px; border-radius: 12px; }
+.fkind { gap: 8px; margin-top: 4px; }
+
+/* Factory floor, approvals, production-line belts */
+.ffloor { padding: 10px; }
+.fgrid { position: relative; display: grid; gap: 8px; background: repeating-linear-gradient(0deg, rgba(255,255,255,.04) 0 1px, transparent 1px 72px), repeating-linear-gradient(90deg, rgba(255,255,255,.04) 0 1px, transparent 1px 33.3%); border-radius: 12px; }
+.fbelts { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 0; }
+.belt { stroke: rgba(255, 200, 90, .55); stroke-width: 1.6; stroke-dasharray: 3 2; vector-effect: non-scaling-stroke; }
+.belt.on { animation: ast-belt .5s linear infinite; stroke: #ffc85a; }
+@keyframes ast-belt { to { stroke-dashoffset: -5; } }
+.ftile { position: relative; z-index: 1; display: flex; flex-direction: column; justify-content: space-between; padding: 8px 10px; border-radius: 12px; background: var(--panel-2); border: 1px solid rgba(255,255,255,.14); cursor: grab; touch-action: none; user-select: none; font-size: 12px; }
+.ftile.busy { border-color: #ffc85a; box-shadow: 0 0 12px rgba(255,200,90,.25); }
+.ftile.drag { z-index: 5; opacity: .85; cursor: grabbing; box-shadow: 0 8px 22px rgba(0,0,0,.5); }
+.fav { display: flex; gap: 2px; }
+.fx { position: absolute; top: 2px; right: 4px; background: none; border: 0; color: inherit; opacity: .6; font-size: 12px; cursor: pointer; }
+.apcard { margin: 10px 0; }
+.aptext { width: 100%; box-sizing: border-box; background: rgba(255,255,255,.05); color: inherit; border: 1px solid rgba(255,255,255,.14); border-radius: 10px; padding: 8px; font: inherit; }

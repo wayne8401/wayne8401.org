@@ -136,6 +136,10 @@
     { name: 'plugin_calculator', label: 'Calculator', icon: '🧮', description: 'Exact math so agents never guess at numbers.', enabled: true },
     { name: 'plugin_weather', label: 'Weather', icon: '⛅', description: 'Current weather and 3-day forecast (Open-Meteo, free).', enabled: true },
     { name: 'plugin_wikipedia', label: 'Wikipedia', icon: '📚', description: 'Short, sourced encyclopedia summaries.', enabled: true },
+    { name: 'plugin_store_profit', label: 'Store profit', icon: '💵', description: 'Profit and margin from a selling price and a base cost.', enabled: true },
+    { name: 'plugin_drop_countdown', label: 'Drop countdown', icon: '⏳', description: 'Days and hours left until a drop date.', enabled: true },
+    { name: 'plugin_current_time', label: 'Current time', icon: '🕒', description: "Today's date and time in America/Chicago.", enabled: true },
+    { name: 'plugin_best_time_to_post', label: 'Best time to post', icon: '📅', description: 'Best posting windows for TikTok, Instagram and Facebook.', enabled: true },
   ];
 
   /* ===================================================== demo simulator */
@@ -145,6 +149,7 @@
     const d = {
       stations: STATIONS.map((s) => ({ ...s })),
       agents: AGENTS.map((a) => ({ ...a, model: '' })),
+      approvals: [{ id: 'ap-demo', agent: 'echo', platform: 'Instagram', text: 'Sample post: new tees are almost here! Which color should drop first? 👇 #smallbusiness', note: 'Demo item. Real posts show up here when an agent proposes one.', status: 'pending', createdAt: Date.now() }],
       workflows: JSON.parse(JSON.stringify(WORKFLOWS)),
       connectors: JSON.parse(JSON.stringify(DEMO_CONNECTORS)), plugins: DEMO_PLUGINS.map((p) => ({ ...p })), defaultModel: 'ollama:qwen3:8b',
       tasks: [], runs: [], events: [], usage: {}, files: {},
@@ -276,7 +281,7 @@
       return {
         mode: 'demo', model: d.defaultModel, defaultModel: d.defaultModel,
         models: DEMO_MODELS, providers: DEMO_PROVIDERS, connectors: d.connectors, plugins: d.plugins, voices: [], clone: { available: false }, studio: { available: false, voices: [] },
-        stations: d.stations,
+        stations: d.stations, approvals: d.approvals,
         agents: d.agents.map((a) => {
           const running = d.tasks.find((t) => t.agent === a.id && t.status === 'running');
           const queued = d.tasks.filter((t) => t.agent === a.id && t.status === 'queued').length;
@@ -295,6 +300,10 @@
       ['GET', /^status$/, () => status()],
       ['POST', /^tasks$/, (_, b) => createTask(b.agent, b.prompt, { ...(b.voice ? { voice: true } : {}), ...(b.title ? { title: b.title } : {}) })],
       ['POST', /^improve-prompt$/, (_, b) => ({ prompt: improve(b.prompt || '') })],
+      ['POST', /^approvals\/(.+)$/, ([id], b) => { const it = d.approvals.find((x) => x.id === id); if (!it) return {}; if (b.text) it.text = b.text; if (b.decision === 'approve') it.status = 'approved'; if (b.decision === 'reject') it.status = 'rejected'; if (b.decision === 'posted') it.status = 'posted'; return it; }],
+      ['DELETE', /^approvals\/(.+)$/, ([id]) => { d.approvals = d.approvals.filter((x) => x.id !== id); return { ok: true }; }],
+      ['POST', /^stations$/, (_, b) => { const name = String(b.name || '').trim().slice(0, 30) || 'Room'; const st = { id: slug(name) + '-' + Math.random().toString(36).slice(2, 5), name, custom: true }; d.stations.push(st); return st; }],
+      ['DELETE', /^stations\/(.+)$/, ([id]) => { d.stations = d.stations.filter((x) => x.id !== id || !x.custom); return { ok: true }; }],
       ['POST', /^workflows$/, (_, b) => { const wf = { id: uid('wf'), trigger: 'manual', ...b }; d.workflows.push(wf); return wf; }],
       ['DELETE', /^workflows\/(.+)$/, ([id]) => { d.workflows = d.workflows.filter((w) => w.id !== id); return { ok: true }; }],
       ['POST', /^workflows\/(.+)\/run$/, ([id], b) => runWorkflow(d.workflows.find((w) => w.id === id), b.input)],
@@ -341,7 +350,7 @@
   }
 
   /* ============================================================== state */
-  const EMPTY = { stations: [], agents: [], workflows: [], tasks: [], skills: [], memories: [], events: [], files: [], models: [], providers: [], connectors: [], plugins: [], voices: [], clone: {}, studio: { voices: [] }, mode: 'demo' };
+  const EMPTY = { approvals: [], stations: [], agents: [], workflows: [], tasks: [], skills: [], memories: [], events: [], files: [], models: [], providers: [], connectors: [], plugins: [], voices: [], clone: {}, studio: { voices: [] }, mode: 'demo' };
   let S = { ...EMPTY };
   let lastOk = 0, lastErr = '', timer = null;
   const ui = {
@@ -394,14 +403,56 @@
   const pill = (s) => `<span class="pill s-${esc(s)}">${esc(s)}</span>`;
   const CH = window.AgentStationCharacters || { CHARACTERS: [], LOOKS: {}, avatarSvg: () => '', byId: () => null };
   const lookOf = (a) => (a?.look && CH.cleanLook(a.look)) || CH.LOOKS[a?.avatar] || CH.byId(a?.avatar)?.look || CH.LOOKS[a?.id] || null;
-  const avatar = (a, size = '', { bare = false } = {}) => {
+  const avatar = (a, size = '', { bare = false, alive = false, speaking = false } = {}) => {
     const look = lookOf(a);
-    return look ? `<span class="avatar art ${size}${bare ? ' bare' : ''}">${CH.avatarSvg(look, esc(a.name || ''), { full: !/\b(sm|xs)\b/.test(size), bare })}</span>`
+    return look ? `<span class="avatar art ${size}${bare ? ' bare' : ''}${alive ? ' alive' : ''}${speaking ? ' speaking' : ''}">${CH.avatarSvg(look, esc(a.name || ''), { full: !/\b(sm|xs)\b/.test(size), bare })}</span>`
       : `<span class="avatar ${size}" style="background:${colorOf(a.id)}">${esc((a.name || '?').slice(0, 1))}</span>`;
   };
   const charAvatar = (c, size = '') => `<span class="avatar art ${size}">${CH.avatarSvg(c.look, esc(c.name), { full: !/\b(sm|xs)\b/.test(size) })}</span>`;
   const bar = (pct) => `<div class="bar"><i style="width:${Math.max(0, Math.min(100, pct || 0))}%"></i></div>`;
   const empty = (msg, cta = '') => `<div class="empty">${msg}${cta}</div>`;
+
+  /* ------------------------------------------------ factory floor + approvals */
+  const FLOOR_COLS = 3;
+  const floorLayout = () => store.get('floor', {});
+  function floorPos(sts) {
+    const L = floorLayout(), taken = new Set(), pos = {};
+    sts.forEach((st) => { const p = L[st.id]; if (p && p.c < FLOOR_COLS && !taken.has(p.c + ',' + p.r)) { pos[st.id] = p; taken.add(p.c + ',' + p.r); } });
+    sts.forEach((st) => { if (pos[st.id]) return; let i = 0; for (;; i++) { const c = i % FLOOR_COLS, r = Math.floor(i / FLOOR_COLS); if (!taken.has(c + ',' + r)) { pos[st.id] = { c, r }; taken.add(c + ',' + r); break; } } });
+    return pos;
+  }
+  function floorHtml() {
+    const sts = S.stations; if (!sts.length) return empty('No rooms yet.');
+    const pos = floorPos(sts), rows = Math.max(...Object.values(pos).map((p) => p.r)) + 2;
+    const tiles = sts.map((st) => {
+      const p = pos[st.id], team = S.agents.filter((a) => a.status !== undefined && a.station === st.id), busy = team.some((a) => a.status === 'running');
+      return `<div class="ftile ${busy ? 'busy' : ''}" data-room="${esc(st.id)}" style="grid-column:${p.c + 1};grid-row:${p.r + 1}"><b>${esc(st.name)}</b><span class="fav">${team.slice(0, 4).map((a) => avatar(a, 'xs')).join('')}</span>${st.custom ? `<button class="fx" data-act="room-del" data-id="${esc(st.id)}" aria-label="Remove room">✕</button>` : ''}</div>`;
+    }).join('');
+    // conveyor belts: link rooms of consecutive steps in each production line
+    const links = [];
+    (S.workflows || []).forEach((wf) => { for (let i = 0; i < wf.steps.length - 1; i++) { const a = agentById(wf.steps[i].agent), b = agentById(wf.steps[i + 1].agent); if (a && b && a.station !== b.station && pos[a.station] && pos[b.station]) links.push([a.station, b.station, wf.status === 'running']); } });
+    const cw = 100 / FLOOR_COLS, ch = 100 / rows, cx = (p) => (p.c + .5) * cw, cy = (p) => (p.r + .5) * ch;
+    const svg = `<svg class="fbelts" viewBox="0 0 100 100" preserveAspectRatio="none">${links.map(([a, b, on]) => `<line x1="${cx(pos[a])}" y1="${cy(pos[a])}" x2="${cx(pos[b])}" y2="${cy(pos[b])}" class="belt ${on ? 'on' : ''}"/>`).join('')}</svg>`;
+    return `<div class="fgrid" id="fgrid" style="grid-template-columns:repeat(${FLOOR_COLS},1fr);grid-template-rows:repeat(${rows},64px)">${svg}${tiles}</div><p class="muted tiny" style="margin:8px 0 0">Press and drag a room to move it. Belts show production lines linking rooms.</p>`;
+  }
+  const PLATFORM_URL = { tiktok: 'https://www.tiktok.com/upload', instagram: 'https://www.instagram.com/', facebook: 'https://www.facebook.com/', etsy: 'https://www.etsy.com/your/shops/me/dashboard', shopify: 'https://admin.shopify.com/' };
+  function approvalsSheet() {
+    const list = S.approvals || [], pend = list.filter((x) => x.status === 'pending'), ready = list.filter((x) => x.status === 'approved');
+    const card = (x) => { const a = agentById(x.agent) || { name: x.agent }; return `<div class="card apcard"><div class="wf-head"><b class="grow">${esc(x.platform)} · from ${esc(a.name)}</b><small class="muted">${esc(clock(x.createdAt))}</small></div>
+      <textarea class="aptext" data-apid="${esc(x.id)}" rows="5" ${x.status === 'pending' ? '' : 'readonly'}>${esc(x.text)}</textarea>${x.note ? `<p class="muted tiny">${esc(x.note)}</p>` : ''}
+      ${x.status === 'pending' ? `<div class="row"><button class="btn small" data-act="ap-approve" data-id="${esc(x.id)}">👍 Approve</button><button class="btn small ghost" data-act="ap-reject" data-id="${esc(x.id)}">✕ Reject</button></div>`
+        : `<div class="row"><button class="btn small" data-act="ap-copy" data-id="${esc(x.id)}">📋 Copy</button><a class="btn small ghost" target="_blank" rel="noopener" href="${esc(PLATFORM_URL[String(x.platform).toLowerCase()] || 'https://www.google.com')}">Open ${esc(x.platform)}</a><button class="btn small ghost" data-act="ap-posted" data-id="${esc(x.id)}">✔ I posted it</button></div>`}</div>`; };
+    return `<h3>✅ Approvals</h3><p class="muted">Agents only propose. You decide, and you post it yourself. Approving never publishes anything.</p>
+      ${pend.map(card).join('') || '<p class="muted tiny">Nothing waiting.</p>'}${ready.length ? `<h4 style="margin:14px 0 6px">Approved, ready for you to post</h4>${ready.map(card).join('')}` : ''}`;
+  }
+  function lineSheet() {
+    const ids = ui.lineAgents || [];
+    return `<h3>🔗 Build a production line</h3><p class="muted">Pick agents in the order they work. Each one gets the previous agent's result.</p>
+      <label class="field">Line name<input id="lineName" value="${esc(ui.lineName || '')}" placeholder="e.g. Research then write then plan"></label>
+      <div class="chips">${S.agents.map((a) => `<button type="button" class="chip ${ids.includes(a.id) ? 'active' : ''}" data-act="line-pick" data-id="${esc(a.id)}">${ids.includes(a.id) ? ids.indexOf(a.id) + 1 + '. ' : ''}${esc(a.name)}</button>`).join('')}</div>
+      <p class="muted tiny">${ids.length ? ids.map((i) => agentName(i)).join(' ➜ ') : 'Tap agents in order.'}</p>
+      <button class="btn" data-act="line-save" ${ids.length < 2 ? 'disabled' : ''}>Build line</button>`;
+  }
 
   /* ============================================================= views */
   const VIEWS = {
@@ -410,6 +461,10 @@
       <div class="stats" id="statsRow" data-region="stats"></div>
       <div class="h2row"><h2>🏭 Production line</h2><span class="muted tiny livetag" data-region="lineTag"></span></div>
       <div class="card line" id="prodLine" data-region="line"></div>
+      <div class="h2row"><h2>✅ Approvals</h2><span class="muted tiny">nothing posts without you</span></div>
+      <div class="card" data-region="approvals"></div>
+      <div class="h2row"><h2>🏗️ Factory floor</h2><span><button class="link" data-act="room-add">➕ Room</button> · <button class="link" data-act="line-build">🔗 Line</button></span></div>
+      <div class="card ffloor" data-region="ffloor"></div>
       <div class="h2row"><h2>🖥️ Workstations</h2><span><button class="link" data-act="forge">🛠️ Build</button> · <button class="link" data-act="new-agent">✨ Gallery</button></span></div>
       <div class="floor" id="floor" data-region="floor"></div>
       <details class="card mapcard"><summary><b>🛰️ Network map</b> <span class="muted tiny">how stations connect</span></summary><div data-region="map"></div></details>
@@ -474,6 +529,12 @@
         <div class="conveyor ${w.length ? 'on' : ''}"><i></i></div>
         ${!S.tasks.length ? '<p class="muted tiny center" style="margin:8px 0 0">Give an agent a task and watch it move down the line.</p>' : ''}`;
     },
+    approvals() {
+      const p = (S.approvals || []).filter((x) => x.status === 'pending'), r = (S.approvals || []).filter((x) => x.status === 'approved');
+      if (!p.length && !r.length) return '<p class="muted tiny" style="margin:0">Posts your agents write wait here for your OK. Nothing is ever published for you.</p>';
+      return `<button class="btn small ${p.length ? '' : 'ghost'}" data-act="approvals-open">${p.length ? `Review ${p.length} waiting` : 'Open approvals'}</button>${r.length ? ` <span class="muted tiny">${r.length} approved, ready for you to post</span>` : ''}`;
+    },
+    ffloor() { return floorHtml(); },
     floor() {
       const ICON = { research: '🔬', studio: '🎨', ops: '🗂️' };
       return S.stations.map((st) => {
@@ -675,7 +736,7 @@
     return `<button class="desk s-${esc(a.status)} ${ui.flashAgent === a.id ? 'flash' : ''}" data-act="agent" data-id="${esc(a.id)}" aria-label="${esc(a.name)}: ${esc(say)}">
       <span class="say">${esc(say)}</span>
       ${a.status === 'running' ? sceneHtml(a) : ''}
-      <span class="worker">${avatar(a, 'lg', { bare: a.status === 'running' })}<i class="lamp"></i></span>
+      <span class="worker">${avatar(a, 'lg', { bare: a.status === 'running', alive: true, speaking: vc.state === 'speaking' && vc.agent === a.id })}<i class="lamp"></i></span>
       <span class="monitor ${a.status === 'running' ? 'on' : ''}"><i></i><i></i><i></i></span>
       <span class="tabletop"></span>
       <span class="plate"><b>${esc(a.name)}</b><small>${a.external ? '🤝 via Muse Bridge' : a.model ? `${esc(shortModel(a.model))}${isChatOnly(a.model) ? ' · 💬' : ''}` : esc(a.role)}</small></span>
@@ -921,6 +982,8 @@
     if (sh.kind === 'muse') html = `<h3>🤝 Connect Muse</h3><p class="muted">Link your Muse agent so it works with your agents here.</p>${S.mode === 'phone' ? museCardHtml() : '<p class="muted tiny">The Muse Bridge runs in the phone app (the Netlify site). Open the app from your Netlify address to connect Muse.</p>'}`;
     if (sh.kind === 'welcome') html = welcomeSheet();
     if (sh.kind === 'character') { const c = CH.byId(sh.id); if (!c) return closeSheet(); html = characterSheet(c); }
+    if (sh.kind === 'approvals') html = approvalsSheet();
+    if (sh.kind === 'line') html = lineSheet();
     if (sh.kind === 'events') html = `<h3>All activity</h3><div class="feed" style="margin-top:12px">${eventsHtml(S.events)}</div>`;
     if (sh._last !== html) {
       $('#sheetBody').innerHTML = html; sh._last = html;
@@ -947,6 +1010,7 @@
   function update() {
     for (const el of $$('#view [data-region]')) {
       if (el.contains(document.activeElement) && /^(SELECT|INPUT|TEXTAREA)$/.test(document.activeElement.tagName)) continue; // don't yank a control the user is using
+      if (ui.dragging && el.dataset.region === 'ffloor') continue;
       const html = REGIONS[el.dataset.region]?.() ?? '';
       if (regionCache.get(el) !== html) { el.innerHTML = html; regionCache.set(el, html); }
     }
@@ -1160,7 +1224,7 @@
     return j.text || '';
   }
 
-  function setVoice(state, extra = {}) { Object.assign(vc, { state, ...extra }); if (ui.sheet?.kind === 'voice') renderSheet(); }
+  function setVoice(state, extra = {}) { const was = vc.state; Object.assign(vc, { state, ...extra }); if (ui.sheet?.kind === 'voice') renderSheet(); if ((was === 'speaking') !== (state === 'speaking')) render(); }
 
   function openVoice(agentId) {
     unlockAudio();
@@ -1225,6 +1289,7 @@
     }[vc.state];
     return `<div class="voice">
       <div class="wf-head"><h3 class="grow">🎙️ Voice chat</h3><select class="vagent" data-change="voice-agent" aria-label="Agent">${S.agents.map((x) => `<option value="${esc(x.id)}" ${x.id === a.id ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></div>
+      <div class="vchar">${avatar(a, 'xl', { alive: true, speaking: vc.state === 'speaking' })}</div>
       <button class="orb-btn ${vc.state}" data-act="voice-mic" aria-label="${vc.state === 'listening' ? 'Stop listening' : 'Talk'}"><span class="orb-core">${vc.state === 'speaking' ? '🔊' : vc.state === 'thinking' ? '💭' : '🎤'}</span></button>
       <p class="vstate">${label}</p>
       ${vc.interim ? `<p class="interim">“${esc(vc.interim)}”</p>` : ''}
@@ -1258,6 +1323,9 @@
     return { shape: rnd(R.shape), eyes: rnd(R.eyes), mouth: rnd(R.mouth), top: rnd(R.top), body: rnd(robot ? R.body : O.body), bg: rnd(O.bg), fg: rnd(robot ? O.fg.slice(0, 9) : O.fg), accent: rnd(O.accent), cheeks: !robot && Math.random() < 0.4 };
   };
 
+  const randomHuman = (base = {}) => ({ kind: 'human', skin: rnd(CH.OPTIONS.skin), hair: rnd(CH.OPTIONS.hair), hairColor: rnd(CH.OPTIONS.hairColor), face: rnd(CH.OPTIONS.face), eyes: rnd(CH.HUMAN.eyes), mouth: rnd(CH.HUMAN.mouth), top: 'none', body: 'none', shape: 'round',
+    bg: base.bg || rnd(CH.OPTIONS.bg), fg: rnd(CH.OPTIONS.fg), accent: base.accent || rnd(CH.OPTIONS.accent), cheeks: Math.random() < 0.3 });
+
   function personalityText(t, name) {
     const lines = [];
     lines.push(t.warm >= 65 ? 'be warm, kind and encouraging' : t.warm <= 35 ? 'be professional and to the point' : 'be friendly but focused');
@@ -1282,13 +1350,13 @@
     openSheet('forge');
   }
 
-  const forgeAvatar = (look, cls = '') => `<span class="avatar art ${cls}">${CH.avatarSvg(CH.cleanLook(look), '')}</span>`;
+  const forgeAvatar = (look, cls = '', extra = '') => `<span class="avatar art ${cls} ${extra}">${CH.avatarSvg(CH.cleanLook(look), '')}</span>`;
   function forgePreview(f) {
-    return `<div class="fpreview">${forgeAvatar(f.look, 'xl')}<div><b>${esc(f.name || 'New agent')}</b><small>${esc(f.role || 'Pick a job')}</small></div></div>`;
+    return `<div class="fpreview">${forgeAvatar(f.look, 'xl', `alive${ui.forgeSpeak ? ' speaking' : ''}`)}<div><b>${esc(f.name || 'New agent')}</b><small>${esc(f.role || 'Pick a job')}</small></div></div>`;
   }
-  function partRow(label, key) {
+  function partRow(label, key, list) {
     const f = ui.forge;
-    return `<div class="frow"><div class="flabel">${label}</div><div class="fopts">${CH.OPTIONS[key].map((v) =>
+    return `<div class="frow"><div class="flabel">${label}</div><div class="fopts">${(list || CH.OPTIONS[key]).map((v) =>
       `<button type="button" class="fopt ${f.look[key] === v ? 'on' : ''}" data-act="fb-pick" data-id="${key}:${v}" aria-label="${label} ${v}">${forgeAvatar({ ...f.look, [key]: v }, 'sm')}</button>`).join('')}</div></div>`;
   }
   function swatchRow(label, key) {
@@ -1302,9 +1370,17 @@
     const steps = `<div class="fsteps">${FORGE_STEPS.map((t, i) => `<button type="button" class="fstep ${i === f.step ? 'on' : i < f.step ? 'done' : ''}" data-act="fb-step" data-id="${i}">${t}</button>`).join('')}</div>`;
     let body = '';
     if (f.step === 0) {
-      body = `<div class="row" style="margin-bottom:8px"><button type="button" class="btn small" data-act="fb-random" data-id="robot">🤖 Random robot</button><button type="button" class="btn ghost small" data-act="fb-random" data-id="classic">🎲 Random classic</button></div>
-        ${partRow('Helmet / head', 'shape')}${partRow('Optics / eyes', 'eyes')}${partRow('Jaw / mouth', 'mouth')}${partRow('Top gear', 'top')}${partRow('Armor', 'body')}
-        ${swatchRow('Armor color', 'fg')}${swatchRow('Backdrop', 'bg')}${swatchRow('Glow / accent', 'accent')}
+      const human = f.look.kind === 'human';
+      body = `<div class="flabel">Quick looks</div>
+        <div class="fpresets">${CH.PRESETS.map((p) => `<button type="button" class="fpreset" data-act="fb-preset" data-id="${esc(p.id)}" aria-label="Use the ${esc(p.name)} look">${forgeAvatar(p.look, 'sm')}<span>${esc(p.name)}</span></button>`).join('')}</div>
+        <div class="row fkind" role="group" aria-label="Robot or person"><button type="button" class="chip ${human ? '' : 'active'}" data-act="fb-kind" data-id="robot">🤖 Robot</button><button type="button" class="chip ${human ? 'active' : ''}" data-act="fb-kind" data-id="human">🧑 Person</button></div>
+        <div class="row" style="margin:8px 0">${human
+          ? '<button type="button" class="btn small" data-act="fb-random" data-id="human">🎲 Random person</button>'
+          : '<button type="button" class="btn small" data-act="fb-random" data-id="robot">🤖 Random robot</button><button type="button" class="btn ghost small" data-act="fb-random" data-id="classic">🎲 Random classic</button>'}</div>
+        ${human
+          ? `${partRow('Face shape', 'face')}${swatchRow('Skin tone', 'skin')}${partRow('Hair style', 'hair')}${swatchRow('Hair color', 'hairColor')}${partRow('Eyes', 'eyes', CH.HUMAN.eyes)}${partRow('Mouth', 'mouth', CH.HUMAN.mouth)}${swatchRow('Shirt color', 'fg')}${swatchRow('Backdrop', 'bg')}`
+          : `${partRow('Helmet / head', 'shape')}${partRow('Optics / eyes', 'eyes')}${partRow('Jaw / mouth', 'mouth')}${partRow('Top gear', 'top')}${partRow('Armor', 'body')}
+        ${swatchRow('Armor color', 'fg')}${swatchRow('Backdrop', 'bg')}${swatchRow('Glow / accent', 'accent')}`}
         <label class="hf" style="margin-top:6px"><input type="checkbox" data-fbcheck="cheeks" ${f.look.cheeks ? 'checked' : ''}> Rosy cheeks</label>`;
     } else if (f.step === 1) {
       body = `<label class="field">Name<span class="row"><input data-fb="name" maxlength="40" value="${esc(f.name)}" placeholder="e.g. Sprocket"><button type="button" class="btn ghost narrow" data-act="fb-name" aria-label="Random name">🎲</button></span></label>
@@ -1627,6 +1703,16 @@
 
   /* ============================================================ actions */
   const ACTIONS = {
+    'approvals-open': () => openSheet('approvals'),
+    'ap-approve': (id) => { const t = $(`textarea[data-apid="${CSS.escape(id)}"]`); act(() => call('POST', `approvals/${encodeURIComponent(id)}`, { decision: 'approve', text: t ? t.value : '' }), 'Approved. Copy it and post it yourself.'); },
+    'ap-reject': (id) => act(() => call('POST', `approvals/${encodeURIComponent(id)}`, { decision: 'reject' }), 'Rejected'),
+    'ap-posted': (id) => act(() => call('POST', `approvals/${encodeURIComponent(id)}`, { decision: 'posted' }), 'Marked as posted'),
+    'ap-copy': async (id) => { const it = (S.approvals || []).find((x) => x.id === id); try { await navigator.clipboard.writeText(it ? it.text : ''); toast('Copied'); } catch { toast('Press and hold the text to copy', 'bad'); } },
+    'room-add': () => { const n = prompt('Name your new room'); if (n && n.trim()) act(() => call('POST', 'stations', { name: n.trim() }), 'Room built'); },
+    'room-del': (id) => { if (confirm('Remove this room?')) act(() => call('DELETE', `stations/${encodeURIComponent(id)}`), 'Room removed'); },
+    'line-build': () => { ui.lineAgents = []; ui.lineName = ''; openSheet('line'); },
+    'line-pick': (id) => { const l = ui.lineAgents || (ui.lineAgents = []); const i = l.indexOf(id); if (i >= 0) l.splice(i, 1); else l.push(id); const n = $('#lineName'); if (n) ui.lineName = n.value; renderSheet(); },
+    'line-save': () => { const l = ui.lineAgents || []; const n = $('#lineName'); const name = (n && n.value.trim()) || l.map(agentName).join(' ➜ '); closeSheet(); act(() => call('POST', 'workflows', { name, description: 'Production line', steps: l.map((id, i) => ({ name: agentName(id), agent: id, instructions: i === 0 ? 'Do your part of the job described in the input.' : 'Take the previous step\'s result and do your part. Improve and build on it.' })) }), 'Line built. Run it from the Flows tab.'); },
     'go-tasks': () => go('tasks'),
     agent: (id) => openSheet('agent', id),
     task: (id) => openSheet('task', id),
@@ -1718,11 +1804,13 @@
     'fb-next': () => { ui.forge.step = Math.min(FORGE_STEPS.length - 1, ui.forge.step + 1); renderSheet(); $('.sheet-panel').scrollTop = 0; },
     'fb-prev': () => { ui.forge.step = Math.max(0, ui.forge.step - 1); renderSheet(); $('.sheet-panel').scrollTop = 0; },
     'fb-pick': (v) => { const [k, val] = v.split(':'); ui.forge.look[k] = val; renderSheet(); },
-    'fb-random': (kind) => { ui.forge.look = randomLook(kind !== 'classic'); renderSheet(); },
+    'fb-random': (kind) => { ui.forge.look = kind === 'human' ? randomHuman(ui.forge.look) : randomLook(kind !== 'classic'); renderSheet(); },
+    'fb-preset': (id) => { const p = CH.PRESETS.find((x) => x.id === id); if (p) { ui.forge.look = { ...CH.cleanLook(p.look) }; renderSheet(); } },
+    'fb-kind': (k) => { const f = ui.forge, isHuman = f.look.kind === 'human'; if ((k === 'human') === isHuman) return; if (k === 'human') { f._robot = { ...f.look }; f.look = f._person || randomHuman(f.look); } else { f._person = { ...f.look }; f.look = f._robot || randomLook(true); } renderSheet(); },
     'fb-name': () => { ui.forge.name = rnd(NAME_IDEAS); renderSheet(); },
     'fb-role': (i) => { const r = ROLE_IDEAS[+i]; Object.assign(ui.forge, { role: r.role, base: r.base, station: S.stations.some((s) => s.id === r.station) ? r.station : ui.forge.station }); renderSheet(); },
     'fb-station': (id) => { ui.forge.station = id; renderSheet(); },
-    'fb-hear': () => { const f = ui.forge; speakDevice(`Hi! I'm ${f.name || 'your new agent'}${f.role ? `, your ${f.role.toLowerCase()}` : ''}. Ready when you are.`, ++vc.speakId, f.pitch); },
+    'fb-hear': () => { const f = ui.forge; const set = (v) => { ui.forgeSpeak = v; const p = $('#forgePreview'); if (p && ui.forge) p.innerHTML = forgePreview(ui.forge); }; set(true); Promise.resolve(speakDevice(`Hi! I'm ${f.name || 'your new agent'}${f.role ? `, your ${f.role.toLowerCase()}` : ''}. Ready when you are.`, ++vc.speakId, f.pitch)).finally(() => set(false)); },
     'fb-build': () => forgeBuild(),
     brain: () => { if (isPhone()) return openSheet('brain'); closeSheet(); ui.brain = 'connect'; go('brain'); },
     'download-model': (id) => {
@@ -1958,6 +2046,29 @@
 
   /* ============================================================ events */
   document.addEventListener('toggle', (e) => { if (e.target.matches?.('details[data-toggle=hist]')) ui.histOpen = e.target.open; }, true);
+  // Factory floor: press and drag a room, it snaps to the grid.
+  document.addEventListener('pointerdown', (e) => {
+    const tile = e.target.closest?.('.ftile'); if (!tile || e.target.closest('button')) return;
+    const grid = $('#fgrid'); if (!grid) return;
+    const r0 = grid.getBoundingClientRect(), t0 = tile.getBoundingClientRect(), id = tile.dataset.room;
+    const dx = e.clientX - t0.left, dy = e.clientY - t0.top; let moved = false;
+    ui.dragging = true; tile.setPointerCapture?.(e.pointerId);
+    const move = (ev) => { moved = true; tile.classList.add('drag'); tile.style.transform = `translate(${ev.clientX - dx - t0.left}px,${ev.clientY - dy - t0.top}px)`; };
+    const up = (ev) => {
+      tile.removeEventListener('pointermove', move); tile.removeEventListener('pointerup', up); tile.removeEventListener('pointercancel', up);
+      ui.dragging = false;
+      if (moved) {
+        const rows = getComputedStyle(grid).gridTemplateRows.split(' ').length, cw = r0.width / FLOOR_COLS, ch = r0.height / rows;
+        const c = Math.max(0, Math.min(FLOOR_COLS - 1, Math.floor((ev.clientX - r0.left) / cw))), r = Math.max(0, Math.min(rows - 1, Math.floor((ev.clientY - r0.top) / ch)));
+        const L = floorLayout(); const pos = floorPos(S.stations);
+        const other = Object.keys(pos).find((k) => k !== id && pos[k].c === c && pos[k].r === r);
+        if (other) L[other] = pos[id]; // swap places with the room that was there
+        L[id] = { c, r }; store.set('floor', L);
+      }
+      regionCache.clear(); update();
+    };
+    tile.addEventListener('pointermove', move); tile.addEventListener('pointerup', up); tile.addEventListener('pointercancel', up);
+  });
   document.addEventListener('click', (e) => {
     const tb = e.target.closest('[data-tour]');
     if (tb) {

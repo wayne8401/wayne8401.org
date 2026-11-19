@@ -13,7 +13,7 @@ Open the app, choose **Run them on this phone**, and give your agents a brain:
 | **Claude** | Paid per use | Paste a key from console.anthropic.com; adds real web search. Uses the official Anthropic SDK (`vendor/`, MIT) |
 | **Custom** OpenAI-compatible server | Free | Any https endpoint |
 
-Models are labelled 🛠 (uses tools: files, memory, skills, plugins) or 💬 (chat only: answers directly). The default brain is always a 🛠 model. Keys are stored only on the phone and sent only to that service. Keep the app open while agents work: phones pause web apps in the background, so the app keeps the screen awake during tasks. On the phone, agents have memory, skills, files, workflows, voice chat, characters, and the calculator/weather/Wikipedia plugins. MCP connectors, studio voices and voice cloning need the optional computer server (below).
+Models are labelled 🛠 (uses tools: files, memory, skills, plugins) or 💬 (chat only: answers directly). The default brain is always a 🛠 model. Keys are stored only on the phone and sent only to that service. Keep the app open while agents work: phones pause web apps in the background, so the app keeps the screen awake during tasks. On the phone, agents have memory, skills, files, workflows, voice chat, characters, and the calculator/weather/Wikipedia plugins plus store profit, drop countdown, Chicago time and best-time-to-post. MCP connectors, studio voices and voice cloning need the optional computer server (below).
 
 ### Get the app onto your phone
 The app is a set of static files, so any free static host works:
@@ -77,7 +77,7 @@ Tokens are stored only on the server, in `DATA_DIR/connectors.json` (owner-read-
 ```
 After restarting, switch it on in the app.
 
-**Plugins** are single-file tools in `server/plugins/`. Three free ones are included: 🧮 calculator, ⛅ weather (Open-Meteo), 📚 Wikipedia. See `server/plugins/README.md` to write your own.
+**Plugins** are single-file tools in `server/plugins/`. Three free ones are included: 🧮 calculator, ⛅ weather (Open-Meteo), 📚 Wikipedia, plus 💵 store profit, ⏳ drop countdown, 🕒 current time (Chicago) and 📅 best time to post. See `server/plugins/README.md` to write your own.
 
 ## Voice chat
 Tap **🎙️** at the top of the app (or **Talk** on an agent) and just speak. The agent works on what you said and **reads its answer aloud** in a few short sentences; longer details go into a file. **Hands-free** mode listens again after every answer, and saying "goodbye" ends the chat. The **🎤** in the task box dictates a prompt instead of typing. Language, voice and speed are under **Brain → Connect → Voice**.
@@ -155,3 +155,10 @@ Open the address it prints. On your phone, use your computer's Wi-Fi IP, e.g. `h
 - `server/server.mjs`: runs each task as a tool-use loop (memory, skills, files, web, plugins, connectors), serves the app, and exposes an API under `/api/` that the app polls.
 - `server/providers.mjs`: Claude plus OpenAI-compatible providers (Ollama, OpenRouter, Groq, custom) and model discovery.
 - `server/connectors.mjs`: MCP client and connector catalog. `server/plugins.mjs` and `server/plugins/`: plugin loader and built-in plugins. `server/webtools.mjs`: free web search and fetch. `server/voice.mjs`: Whisper transcription for voice chat.
+
+
+## Factory floor, production lines and approvals
+
+- **Factory floor** (Station tab): rooms sit on a grid. Press and drag a room to move it. **➕ Room** builds a new room; **🔗 Line** chains agents into a production line (it appears in Flows and as belts between rooms).
+- **Approvals**: agents can only *propose* posts (the `queue_post` tool). You review, edit, approve or reject them. Approving never publishes anything: you copy the text and post it yourself.
+- Approvals and rooms run on the phone and in demo mode. Posting and reading social/Canva/Shopify/Etsy through connectors needs the computer server (MCP) and is not built in yet.

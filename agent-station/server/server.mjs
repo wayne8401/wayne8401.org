@@ -129,12 +129,13 @@ function event(level, agent, msg) {
 const agentById = (id) => state.agents.find((a) => a.id === id);
 // Agent Builder fields (mirrors cleanLook in characters.js).
 const LOOK_OPTS = { shape: ['round', 'square', 'hex', 'tall', 'wide', 'helm', 'mech', 'sentinel', 'drone'], eyes: ['dot', 'big', 'happy', 'sleepy', 'glasses', 'wink', 'owl', 'visor', 'optics', 'scanner', 'vvisor', 'cyclops'], mouth: ['smile', 'grin', 'o', 'flat', 'cat', 'grille', 'none', 'faceplate', 'vent'], top: ['none', 'antenna', 'twin', 'dish', 'ears', 'fox', 'owl', 'leaf', 'star', 'bolt', 'toque', 'tuft', 'halo', 'fins', 'crest', 'sensors', 'horns'], body: ['none', 'shoulders', 'chassis', 'wings', 'vehicle', 'jet'] };
+const HUMAN_HAIR = ['short', 'long', 'curly', 'afro', 'braids', 'bun', 'ponytail', 'bald'], HUMAN_FACE = ['round', 'oval', 'square', 'heart'];
 function custom(b) {
   const out = {};
   if ('look' in b) {
     const l = b.look && typeof b.look === 'object' ? b.look : null;
     const hex = (v, d) => (/^#[0-9a-fA-F]{6}$/.test(v || '') ? v : d);
-    out.look = l ? { ...Object.fromEntries(Object.entries(LOOK_OPTS).map(([k, opts]) => [k, opts.includes(l[k]) ? l[k] : opts[0]])), bg: hex(l.bg, '#10284f'), fg: hex(l.fg, '#7fb6ff'), accent: hex(l.accent, '#ffd84d'), cheeks: !!l.cheeks } : null;
+    out.look = l ? { ...Object.fromEntries(Object.entries(LOOK_OPTS).map(([k, opts]) => [k, opts.includes(l[k]) ? l[k] : opts[0]])), bg: hex(l.bg, '#10284f'), fg: hex(l.fg, '#7fb6ff'), accent: hex(l.accent, '#ffd84d'), cheeks: !!l.cheeks, ...(l.kind === 'human' ? { kind: 'human', skin: hex(l.skin, '#f1c27d'), hair: HUMAN_HAIR.includes(l.hair) ? l.hair : 'short', hairColor: hex(l.hairColor, '#4a2c17'), face: HUMAN_FACE.includes(l.face) ? l.face : 'round' } : {}) } : null;
   }
   if ('pitch' in b) out.pitch = Math.max(0.5, Math.min(2, +b.pitch || 1));
   if (b.traits && typeof b.traits === 'object') out.traits = Object.fromEntries(['warm', 'detail', 'playful', 'bold'].map((k) => [k, Math.max(0, Math.min(100, +b.traits[k] || 50))]));

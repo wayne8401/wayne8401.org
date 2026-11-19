@@ -17,6 +17,7 @@
   // Draws an avatar from a small spec, viewBox 64x64. By default it's a small full-bodied robot;
   // { full: false } draws just the head (for tiny icons).
   function avatarSvg(c, label = '', { full = true, bare = false } = {}) {
+    if (c.kind === 'human') return humanAvatar(c, label, { full, bare });
     const { bg, fg, shape = 'round', eyes = 'dot', mouth = 'smile', top = 'none', body = 'none', cheeks = false, accent = '#ffffff' } = c;
     const parts = [];
     const G = (cls, svg) => (svg ? `<g class="p-${cls}">${svg}</g>` : ''); // named layers, so the builder can animate parts flying together
@@ -66,7 +67,7 @@
     parts.push(G('head', heads[shape] || heads.round));
     const face = [];
     // face plate for some looks
-    if (eyes === 'visor') face.push(`<rect x="17" y="30" width="30" height="11" rx="5.5" fill="${INK}"/><circle cx="25" cy="35.5" r="2.6" fill="${accent}"/><circle cx="39" cy="35.5" r="2.6" fill="${accent}"/>`);
+    const visorPlate = eyes === 'visor' ? `<rect x="17" y="30" width="30" height="11" rx="5.5" fill="${INK}"/><circle cx="25" cy="35.5" r="2.6" fill="${accent}"/><circle cx="39" cy="35.5" r="2.6" fill="${accent}"/>` : '';
     const eyeSets = {
       dot: `<circle cx="25" cy="36" r="3.4" fill="${INK}"/><circle cx="39" cy="36" r="3.4" fill="${INK}"/>`,
       big: `<circle cx="24.5" cy="35" r="6.5" fill="#fff"/><circle cx="39.5" cy="35" r="6.5" fill="#fff"/><circle cx="25.5" cy="36" r="3.4" fill="${INK}"/><circle cx="40.5" cy="36" r="3.4" fill="${INK}"/><circle cx="26.6" cy="34.6" r="1.1" fill="#fff"/><circle cx="41.6" cy="34.6" r="1.1" fill="#fff"/>`,
@@ -82,7 +83,7 @@
       cyclops: `<circle cx="32" cy="35" r="8" fill="${INK}"/><circle cx="32" cy="35" r="5" fill="${accent}"/><circle cx="32" cy="35" r="2" fill="#fff"/><circle cx="34" cy="33" r="1" fill="#fff" opacity=".8"/>`,
       vvisor: `<path d="M14 29 L32 38 L50 29 L50 35 L32 44 L14 35 Z" fill="${INK}"/><path d="M18 32 L32 39 L46 32" fill="none" stroke="${accent}" stroke-width="2.2" stroke-linejoin="round"/>`,
     };
-    face.push(eyeSets[eyes] || eyeSets.dot);
+    face.push(`<g class="p-eyes">${visorPlate}${eyeSets[eyes] || eyeSets.dot}</g>`); // p-eyes blinks
     if (cheeks) face.push(`<circle cx="18.5" cy="44" r="3.2" fill="#ff8fb1" opacity=".75"/><circle cx="45.5" cy="44" r="3.2" fill="#ff8fb1" opacity=".75"/>`);
     const mouths = {
       smile: `<path d="M25 46 Q32 52 39 46" fill="none" stroke="${INK}" stroke-width="3" stroke-linecap="round"/>`,
@@ -96,11 +97,83 @@
       vent: `<rect x="23" y="45" width="18" height="2.4" rx="1.2" fill="${INK}"/><rect x="24" y="48.8" width="16" height="2.4" rx="1.2" fill="${INK}"/><rect x="25" y="52.6" width="14" height="2.4" rx="1.2" fill="${INK}"/>`,
       none: '',
     };
-    face.push(mouths[mouth] ?? mouths.smile);
+    face.push(`<g class="p-mouth">${mouths[mouth] ?? mouths.smile}</g>`); // p-mouth moves while speaking
     parts.push(G('face', face.join('')));
     const open = `<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="${label}">${bare ? '' : `<rect width="64" height="64" rx="18" fill="${bg}"/>`}`;
     if (!full) return `${open}${parts.join('')}</svg>`;
-    return `${open}${robotFrame(fg, accent, body)}<g transform="translate(14.5 -1.5) scale(.55)">${parts.join('')}</g></svg>`;
+    return `${open}${robotFrame(fg, accent, body)}<g transform="translate(14.5 -1.5) scale(.55)"><g class="p-sway">${parts.join('')}</g></g></svg>`;
+  }
+
+
+  // ---- People: skin tones, hair styles and face shapes (original flat art, same 64x64 frame as the robots) ----
+  const SKINS = ['#ffdfc4', '#f1c27d', '#e0ac69', '#c68642', '#8d5524', '#5c3a21'];
+  const HAIR_COLORS = ['#1b1b1b', '#4a2c17', '#8a5a2b', '#d9a441', '#c9482c', '#b8b8c8', '#7a4bff', '#ff7ad9'];
+  const HAIR_STYLES = ['short', 'long', 'curly', 'afro', 'braids', 'bun', 'ponytail', 'bald'];
+  const FACES = ['round', 'oval', 'square', 'heart'];
+  const HUMAN = { eyes: ['dot', 'big', 'happy', 'sleepy', 'glasses', 'wink'], mouth: ['smile', 'grin', 'o', 'flat', 'cat'] };
+
+  function humanAvatar(c, label = '', { full = true, bare = false } = {}) {
+    const { bg, fg, accent = '#ffd84d', cheeks = false } = c;
+    const skin = c.skin || SKINS[1], hc = c.hairColor || HAIR_COLORS[1], style = HAIR_STYLES.includes(c.hair) ? c.hair : 'short', face = FACES.includes(c.face) ? c.face : 'round';
+    const G = (cls, svg) => (svg ? `<g class="p-${cls}">${svg}</g>` : '');
+    const earX = { round: [12, 52], oval: [14.5, 49.5], square: [12, 52], heart: [13.5, 50.5] }[face];
+    const ears = `<circle cx="${earX[0]}" cy="39" r="3.6" fill="${skin}"/><circle cx="${earX[1]}" cy="39" r="3.6" fill="${skin}"/><circle cx="${earX[0]}" cy="39" r="1.5" fill="${INK}" opacity=".15"/><circle cx="${earX[1]}" cy="39" r="1.5" fill="${INK}" opacity=".15"/>`;
+    const heads = {
+      round: `<circle cx="32" cy="38" r="20" fill="${skin}"/>`,
+      oval: `<ellipse cx="32" cy="38" rx="17" ry="21" fill="${skin}"/>`,
+      square: `<rect x="13" y="19" width="38" height="38" rx="11" fill="${skin}"/>`,
+      heart: `<path d="M13 30 C13 18 51 18 51 30 C51 44 42 57 32 58 C22 57 13 44 13 30 Z" fill="${skin}"/>`,
+    };
+    const braid = (x) => [42, 48, 54, 60].map((y) => `<ellipse cx="${x}" cy="${y}" rx="3.4" ry="3.2" fill="${hc}"/>`).join('') + `<rect x="${x - 1.2}" y="40" width="2.4" height="22" fill="${INK}" opacity=".18"/>`;
+    const back = {
+      long: `<path d="M10 34 C8 10 56 10 54 34 L57 60 L43 60 L43 42 L21 42 L21 60 L7 60 Z" fill="${hc}"/>`,
+      curly: [[15, 27], [21, 18], [32, 14], [43, 18], [49, 27], [12, 40], [52, 40], [16, 50], [48, 50]].map(([x, y]) => `<circle cx="${x}" cy="${y}" r="8" fill="${hc}"/>`).join(''),
+      afro: `<circle cx="32" cy="30" r="26" fill="${hc}"/>`,
+      bun: `<circle cx="32" cy="11" r="8" fill="${hc}"/><circle cx="32" cy="11" r="3" fill="${INK}" opacity=".15"/>`,
+      ponytail: `<path d="M48 26 C63 26 64 46 55 58 C57 46 52 40 46 36 Z" fill="${hc}"/>`,
+      braids: braid(13) + braid(51),
+    }[style] || '';
+    const cap = `<path d="M12 36 C8 8 56 8 52 36 C50 27 44 23 32 23 C20 23 14 27 12 36 Z" fill="${hc}"/>`;
+    const front = style === 'bald' ? '' : style === 'curly' ? [[18, 26], [25, 21], [32, 20], [39, 21], [46, 26]].map(([x, y]) => `<circle cx="${x}" cy="${y}" r="6.5" fill="${hc}"/>`).join('') : cap;
+    const eyeSets = {
+      dot: `<circle cx="25" cy="37" r="3" fill="${INK}"/><circle cx="39" cy="37" r="3" fill="${INK}"/>`,
+      big: `<circle cx="25" cy="36.5" r="5.4" fill="#fff"/><circle cx="39" cy="36.5" r="5.4" fill="#fff"/><circle cx="25.6" cy="37.2" r="3" fill="${INK}"/><circle cx="39.6" cy="37.2" r="3" fill="${INK}"/><circle cx="26.5" cy="36" r="1" fill="#fff"/><circle cx="40.5" cy="36" r="1" fill="#fff"/>`,
+      happy: `<path d="M20.5 38 Q25 32.5 29.5 38" fill="none" stroke="${INK}" stroke-width="2.8" stroke-linecap="round"/><path d="M34.5 38 Q39 32.5 43.5 38" fill="none" stroke="${INK}" stroke-width="2.8" stroke-linecap="round"/>`,
+      sleepy: `<path d="M20.5 37 Q25 40 29.5 37" fill="none" stroke="${INK}" stroke-width="2.8" stroke-linecap="round"/><path d="M34.5 37 Q39 40 43.5 37" fill="none" stroke="${INK}" stroke-width="2.8" stroke-linecap="round"/>`,
+      glasses: `<circle cx="24.5" cy="37" r="5.6" fill="#fff" fill-opacity=".85" stroke="${INK}" stroke-width="2.2"/><circle cx="39.5" cy="37" r="5.6" fill="#fff" fill-opacity=".85" stroke="${INK}" stroke-width="2.2"/><line x1="30.1" y1="37" x2="33.9" y2="37" stroke="${INK}" stroke-width="2.2"/><circle cx="25" cy="37.4" r="2.2" fill="${INK}"/><circle cx="40" cy="37.4" r="2.2" fill="${INK}"/>`,
+      wink: `<circle cx="25" cy="37" r="3" fill="${INK}"/><path d="M34.5 38 Q39 33 43.5 38" fill="none" stroke="${INK}" stroke-width="2.8" stroke-linecap="round"/>`,
+    };
+    const mouths = {
+      smile: `<path d="M26 47.5 Q32 52.5 38 47.5" fill="none" stroke="${INK}" stroke-width="2.6" stroke-linecap="round"/>`,
+      grin: `<path d="M24.5 46.5 Q32 55 39.5 46.5 Z" fill="${INK}"/><path d="M27.5 49.5 Q32 51.5 36.5 49.5" fill="none" stroke="#ff8fb1" stroke-width="2" stroke-linecap="round"/>`,
+      o: `<circle cx="32" cy="49" r="3" fill="${INK}"/>`,
+      flat: `<line x1="27" y1="49" x2="37" y2="49" stroke="${INK}" stroke-width="2.6" stroke-linecap="round"/>`,
+      cat: `<path d="M26 47.5 Q29 51 32 47.5 Q35 51 38 47.5" fill="none" stroke="${INK}" stroke-width="2.4" stroke-linecap="round"/>`,
+    };
+    const brow = style === 'bald' ? INK : hc;
+    const faceSvg = `<g class="p-eyes">${eyeSets[c.eyes] || eyeSets.dot}</g>`
+      + `<path d="M20 30 Q25 27 30 30 M34 30 Q39 27 44 30" fill="none" stroke="${brow}" stroke-width="2.2" stroke-linecap="round" opacity="${style === 'bald' ? '.4' : '.9'}"/>`
+      + `<path d="M32 40.5 Q30 44.5 33 45.2" fill="none" stroke="${INK}" stroke-width="1.4" stroke-linecap="round" opacity=".25"/>`
+      + (cheeks ? `<circle cx="19" cy="45" r="3.2" fill="#ff8fb1" opacity=".6"/><circle cx="45" cy="45" r="3.2" fill="#ff8fb1" opacity=".6"/>` : '')
+      + `<g class="p-mouth">${mouths[c.mouth] || mouths.smile}</g>`;
+    const head = [G('top', back), G('head', ears + (heads[face] || heads.round)), G('face', faceSvg), G('top', front)].join('');
+    const open = `<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="${label}">${bare ? '' : `<rect width="64" height="64" rx="18" fill="${bg}"/>`}`;
+    if (!full) return `${open}<path d="M5 64 Q7 51 22 49 L42 49 Q57 51 59 64 Z" fill="${fg}"/><rect x="27" y="48" width="10" height="9" fill="${skin}"/><path d="M27 49 L32 55 L37 49 Z" fill="${INK}" opacity=".18"/>${head}</svg>`;
+    return `${open}${humanFrame(skin, fg, accent)}<g transform="translate(14.5 -1.5) scale(.55)"><g class="p-sway">${head}</g></g></svg>`;
+  }
+
+  // A person's body under the head: legs, arms, shirt (same layout as robotFrame, so the same animations work).
+  function humanFrame(skin, shirt, accent) {
+    const pants = '#2b3452', shoe = '#10162a';
+    return `<g class="p-body">
+      <rect x="23.5" y="46" width="7" height="12" rx="3" fill="${pants}"/><rect x="33.5" y="46" width="7" height="12" rx="3" fill="${pants}"/>
+      <rect x="21.5" y="56" width="10" height="4.5" rx="2.2" fill="${shoe}"/><rect x="32.5" y="56" width="10" height="4.5" rx="2.2" fill="${shoe}"/>
+      <g class="p-arm-l"><rect x="14" y="32" width="6.4" height="14" rx="3.2" fill="${shirt}"/><circle cx="17.2" cy="47.6" r="2.9" fill="${skin}"/></g>
+      <g class="p-arm-r"><rect x="43.6" y="32" width="6.4" height="14" rx="3.2" fill="${shirt}"/><circle cx="46.8" cy="47.6" r="2.9" fill="${skin}"/></g>
+      <rect x="28.5" y="27" width="7" height="6" fill="${skin}"/>
+      <rect x="20" y="31" width="24" height="17" rx="5" fill="${shirt}"/>
+      <path d="M28 31 L32 36.5 L36 31 Z" fill="${skin}"/><rect x="20" y="44" width="24" height="3.5" fill="${INK}" opacity=".18"/><rect x="36" y="38" width="5" height="3" rx="1" fill="${accent}"/>
+    </g>`;
   }
 
   // The small robot body under the head: legs, arms, torso, plus the chosen armor or vehicle kit.
@@ -116,9 +189,8 @@
       ${shade('<rect x="23" y="51" width="7" height="1.6"/><rect x="34" y="51" width="7" height="1.6"/>')}
       <rect x="20.5" y="55.5" width="11" height="4.5" rx="2.2" fill="${fg}"/><rect x="32.5" y="55.5" width="11" height="4.5" rx="2.2" fill="${fg}"/>
       ${shade('<rect x="20.5" y="58" width="11" height="2" rx="1"/><rect x="32.5" y="58" width="11" height="2" rx="1"/>')}
-      <rect x="13.5" y="33" width="6.5" height="13" rx="3.2" fill="${fg}"/><rect x="44" y="33" width="6.5" height="13" rx="3.2" fill="${fg}"/>
-      ${shade('<rect x="13.5" y="39" width="6.5" height="7" rx="3"/><rect x="44" y="39" width="6.5" height="7" rx="3"/>')}
-      <circle cx="16.8" cy="47.6" r="2.7" fill="${fg}"/><circle cx="47.2" cy="47.6" r="2.7" fill="${fg}"/>
+      <g class="p-arm-l"><rect x="13.5" y="33" width="6.5" height="13" rx="3.2" fill="${fg}"/>${shade('<rect x="13.5" y="39" width="6.5" height="7" rx="3"/>')}<circle cx="16.8" cy="47.6" r="2.7" fill="${fg}"/></g>
+      <g class="p-arm-r"><rect x="44" y="33" width="6.5" height="13" rx="3.2" fill="${fg}"/>${shade('<rect x="44" y="39" width="6.5" height="7" rx="3"/>')}<circle cx="47.2" cy="47.6" r="2.7" fill="${fg}"/></g>
       <rect x="28.5" y="28" width="7" height="5" fill="${INK}" opacity=".45"/>
       <rect x="20" y="31" width="24" height="17" rx="5" fill="${fg}"/>
       <rect x="24" y="35" width="16" height="9" rx="2.5" fill="${INK}" opacity=".5"/><circle cx="32" cy="39.5" r="2.6" fill="${accent}"/>
@@ -267,7 +339,18 @@
     bg: ['#10284f', '#0f3b4a', '#123d2c', '#2b1f55', '#4a1036', '#4a2410', '#4a3a0a', '#2a2f3a', '#1d1a4a', '#163a16', '#3a2a1a', '#05070f'],
     fg: ['#c7cfdc', '#6b7690', '#e5484d', '#3e6bff', '#e9b949', '#7fb6ff', '#38e8ff', '#4dffa6', '#b9a3ff', '#ff7ad9', '#ff9a4d', '#ffd84d', '#a9b8d6', '#e8e2ff', '#9be37a', '#c99a6b', '#ffa3c2'],
     accent: ['#38e8ff', '#ff5c7a', '#ffd84d', '#4dffa6', '#ff7aa8', '#ffb84d', '#ffffff', '#9be37a'],
+    // people
+    skin: SKINS, hair: HAIR_STYLES, hairColor: HAIR_COLORS, face: FACES,
   };
+  /** One-tap looks for the Forge Look step: original robot builds in the spirit of a red-and-blue truck robot and a yellow scout robot, plus a few people. */
+  const PRESETS = [
+    { id: 'optimus', name: 'Optimus-style', look: { shape: 'square', eyes: 'visor', mouth: 'grille', top: 'antenna', body: 'vehicle', bg: '#10284f', fg: '#7fb6ff', accent: '#e5484d', cheeks: false } },
+    { id: 'bumblebee', name: 'Bumblebee-style', look: { shape: 'square', eyes: 'big', mouth: 'grin', top: 'antenna', body: 'chassis', bg: '#05070f', fg: '#ffd84d', accent: '#1a1a1a', cheeks: false } },
+    { id: 'person-sam', name: 'Sam', look: { kind: 'human', skin: '#c68642', hair: 'short', hairColor: '#1b1b1b', face: 'square', eyes: 'dot', mouth: 'smile', fg: '#3e6bff', bg: '#10284f', accent: '#ffd84d' } },
+    { id: 'person-maya', name: 'Maya', look: { kind: 'human', skin: '#8d5524', hair: 'afro', hairColor: '#1b1b1b', face: 'round', eyes: 'happy', mouth: 'grin', fg: '#ff7ad9', bg: '#4a1036', accent: '#ffd84d', cheeks: true } },
+    { id: 'person-ella', name: 'Ella', look: { kind: 'human', skin: '#ffdfc4', hair: 'ponytail', hairColor: '#d9a441', face: 'oval', eyes: 'big', mouth: 'smile', fg: '#4dffa6', bg: '#123d2c', accent: '#ffffff' } },
+    { id: 'person-jo', name: 'Jo', look: { kind: 'human', skin: '#f1c27d', hair: 'braids', hairColor: '#4a2c17', face: 'heart', eyes: 'glasses', mouth: 'smile', fg: '#ffb84d', bg: '#2b1f55', accent: '#ffffff' } },
+  ];
   /** Parts that read as robots/mechs: used by "Random robot" and for new builds. */
   const ROBOT = { shape: ['helm', 'mech', 'sentinel', 'drone', 'square', 'hex'], eyes: ['optics', 'scanner', 'vvisor', 'cyclops', 'visor'], mouth: ['faceplate', 'vent', 'grille', 'flat'], top: ['fins', 'crest', 'horns', 'sensors', 'antenna', 'dish', 'none'], body: ['vehicle', 'jet', 'shoulders', 'chassis', 'wings'] };
   // Keep only known parts and plain colours, so a stored look can never inject markup.
@@ -275,9 +358,11 @@
     if (!l || typeof l !== 'object') return null;
     const hex = (v, d) => (/^#[0-9a-fA-F]{6}$/.test(v || '') ? v : d);
     const pick = (k, d) => (OPTIONS[k].includes(l[k]) ? l[k] : d);
-    return { shape: pick('shape', 'round'), eyes: pick('eyes', 'dot'), mouth: pick('mouth', 'smile'), top: pick('top', 'none'), body: pick('body', 'none'),
+    const out = { shape: pick('shape', 'round'), eyes: pick('eyes', 'dot'), mouth: pick('mouth', 'smile'), top: pick('top', 'none'), body: pick('body', 'none'),
       bg: hex(l.bg, '#10284f'), fg: hex(l.fg, '#7fb6ff'), accent: hex(l.accent, '#ffd84d'), cheeks: !!l.cheeks };
+    if (l.kind === 'human') Object.assign(out, { kind: 'human', skin: hex(l.skin, SKINS[1]), hair: pick('hair', 'short'), hairColor: hex(l.hairColor, HAIR_COLORS[1]), face: pick('face', 'round') });
+    return out;
   }
 
-  window.AgentStationCharacters = { CHARACTERS, LOOKS, OPTIONS, ROBOT, avatarSvg, cleanLook, byId: (id) => CHARACTERS.find((c) => c.id === id) };
+  window.AgentStationCharacters = { CHARACTERS, LOOKS, OPTIONS, ROBOT, HUMAN, PRESETS, avatarSvg, cleanLook, byId: (id) => CHARACTERS.find((c) => c.id === id) };
 })();

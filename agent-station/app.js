@@ -403,9 +403,9 @@
   const pill = (s) => `<span class="pill s-${esc(s)}">${esc(s)}</span>`;
   const CH = window.AgentStationCharacters || { CHARACTERS: [], LOOKS: {}, avatarSvg: () => '', byId: () => null };
   const lookOf = (a) => (a?.look && CH.cleanLook(a.look)) || CH.LOOKS[a?.avatar] || CH.byId(a?.avatar)?.look || CH.LOOKS[a?.id] || null;
-  const avatar = (a, size = '', { bare = false, alive = false, speaking = false, full } = {}) => {
+  const avatar = (a, size = '', { bare = false, alive = false, speaking = false, full, mode, cls = '' } = {}) => {
     const look = lookOf(a);
-    return look ? `<span class="avatar art ${size}${bare ? ' bare' : ''}${alive ? ' alive' : ''}${speaking ? ' speaking' : ''}">${CH.avatarSvg(look, esc(a.name || ''), { full: full ?? !/\b(sm|xs)\b/.test(size), bare })}</span>`
+    return look ? `<span class="avatar art ${size}${bare ? ' bare' : ''}${alive ? ' alive' : ''}${speaking ? ' speaking' : ''} ${cls}">${CH.avatarSvg(look, esc(a.name || ''), { full: full ?? !/\b(sm|xs)\b/.test(size), bare, mode })}</span>`
       : `<span class="avatar ${size}" style="background:${colorOf(a.id)}">${esc((a.name || '?').slice(0, 1))}</span>`;
   };
   const charAvatar = (c, size = '') => `<span class="avatar art ${size}">${CH.avatarSvg(c.look, esc(c.name), { full: !/\b(sm|xs)\b/.test(size) })}</span>`;
@@ -413,7 +413,7 @@
   const empty = (msg, cta = '') => `<div class="empty">${msg}${cta}</div>`;
 
   /* ------------------------------------------------ factory floor + approvals */
-  const FLOOR_COLS = 2;
+  let FLOOR_COLS = 2; // stations per row: 2 on phones, 3 on wider screens (updated on each render)
   const floorLayout = () => store.get('floor', {});
   function floorPos(sts) {
     const L = floorLayout(), taken = new Set(), pos = {};
@@ -446,12 +446,13 @@
       <line x1="60" y1="27" x2="60" y2="18" stroke="#c7cfdc" stroke-width="1.4"/><circle cx="60" cy="17" r="2" fill="${busy ? '#4dffa6' : '#ff5c7a'}" class="blink"/></svg>`;
   }
   function floorHtml() {
+    FLOOR_COLS = typeof innerWidth === 'number' && innerWidth >= 1000 ? 3 : 2;
     const sts = S.stations; if (!sts.length) return empty('No rooms yet.');
     const pos = floorPos(sts), rows = Math.max(...Object.values(pos).map((p) => p.r)) + 2;
     const now = Date.now();
     const tiles = sts.map((st) => {
       const p = pos[st.id], team = S.agents.filter((a) => a.status !== undefined && a.station === st.id), workers = team.filter((a) => a.status === 'running'), busy = workers.length > 0;
-      const g = stationGrowth(st.id), born = (spaceSeen[st.id] ||= now), building = now - born < 6000 && Object.keys(spaceSeen).length > sts.length - 1 && spaceReady;
+      const g = stationGrowth(st.id), born = (spaceSeen[st.id] ??= spaceReady ? now : 0), building = now - born < 6000; // only stations launched while the app is open
       const eva = workers.slice(0, 2).map((a, i) => `<span class="eva eva${i}">${avatar(a, 'xs', { bare: true, full: true })}<i class="spark"></i></span>`).join('');
       return `<div class="ftile stile ${busy ? 'busy' : ''} ${building ? 'building' : ''}" data-room="${esc(st.id)}" style="grid-column:${p.c + 1};grid-row:${p.r + 1}">
         <span class="sart" aria-hidden="true">${stationSvg(st.id, building ? 0 : g.level, busy)}</span>${eva}
@@ -467,7 +468,7 @@
     const cw = 100 / FLOOR_COLS, ch = 100 / rows, cx = (p) => (p.c + .5) * cw, cy = (p) => (p.r + .5) * ch;
     const svg = `<svg class="fbelts" viewBox="0 0 100 100" preserveAspectRatio="none">${links.map(([a, b, on]) => `<line x1="${cx(pos[a])}" y1="${cy(pos[a])}" x2="${cx(pos[b])}" y2="${cy(pos[b])}" class="belt ${on ? 'on' : ''}"/>`).join('')}</svg>`;
     const ships = links.filter((l) => l[2]).map(([a, b], i) => `<span class="shuttle" style="--x1:${cx(pos[a])}%;--y1:${cy(pos[a])}%;--x2:${cx(pos[b])}%;--y2:${cy(pos[b])}%;animation-delay:${i * .7}s">🛸</span>`).join('');
-    return `<div class="fgrid" id="fgrid" style="grid-template-columns:repeat(${FLOOR_COLS},1fr);grid-template-rows:repeat(${rows},150px)"><span class="planet" aria-hidden="true"></span>${svg}${ships}${tiles}</div>
+    return `<div class="fgrid" id="fgrid" style="grid-template-columns:repeat(${FLOOR_COLS},1fr);grid-template-rows:repeat(${rows},${FLOOR_COLS === 3 ? 180 : 150}px)"><span class="planet" aria-hidden="true"></span>${svg}${ships}${tiles}</div>
       <p class="muted tiny" style="margin:8px 0 0">Stations grow a new module every 3 tasks their crew finishes. Busy robots go outside to build. Shuttles fly work along routes while a line runs. Press and drag a station to move it.</p>`;
   }
   const PLATFORM_URL = { tiktok: 'https://www.tiktok.com/upload', instagram: 'https://www.instagram.com/', facebook: 'https://www.facebook.com/', etsy: 'https://www.etsy.com/your/shops/me/dashboard', shopify: 'https://admin.shopify.com/' };
@@ -766,12 +767,25 @@
   }
   const sceneHtml = (a) => `<span class="scene" aria-hidden="true"><svg viewBox="0 0 160 120" preserveAspectRatio="xMidYMid slice">${SCENES[sceneKind(a)]}</svg></span>`;
 
+  /* Transforming robots: agents with a vehicle or jet kit park as a car/jet and transform into robot mode to work. */
+  const transformAt = {}, lastStatus = {};
+  const canTransform = (a) => { const l = lookOf(a); return l && l.kind !== 'human' && (l.body === 'vehicle' || l.body === 'jet'); };
+  function deskAvatar(a) {
+    const working = a.status === 'running' || a.status === 'waiting';
+    if (lastStatus[a.id] !== undefined && (lastStatus[a.id] === 'running' || lastStatus[a.id] === 'waiting') !== working) transformAt[a.id] = Date.now();
+    lastStatus[a.id] = a.status;
+    const anim = Date.now() - (transformAt[a.id] || 0) < 1400 ? ' transforming-now' : '';
+    const opts = { bare: a.status === 'running', alive: true, speaking: vc.state === 'speaking' && vc.agent === a.id };
+    if (!canTransform(a)) return avatar(a, 'lg', opts);
+    return avatar(a, 'lg', { ...opts, mode: working || opts.speaking ? 'robot' : 'vehicle', cls: (working ? 'mode-robot' : 'mode-vehicle') + anim });
+  }
+
   function desk(a) {
     const say = a.status === 'running' ? (a.task || 'Working…') : a.status === 'waiting' ? (a.task || 'Waiting in line') : a.status === 'error' ? 'Ran into a problem. Tap me' : 'Ready for a task';
     return `<button class="desk s-${esc(a.status)} ${ui.flashAgent === a.id ? 'flash' : ''}" data-act="agent" data-id="${esc(a.id)}" aria-label="${esc(a.name)}: ${esc(say)}">
       <span class="say">${esc(say)}</span>
       ${a.status === 'running' ? sceneHtml(a) : ''}
-      <span class="worker">${avatar(a, 'lg', { bare: a.status === 'running', alive: true, speaking: vc.state === 'speaking' && vc.agent === a.id })}<i class="lamp"></i></span>
+      <span class="worker">${deskAvatar(a)}<i class="lamp"></i></span>
       <span class="monitor ${a.status === 'running' ? 'on' : ''}"><i></i><i></i><i></i></span>
       <span class="tabletop"></span>
       <span class="plate"><b>${esc(a.name)}</b><small>${a.external ? '🤝 via Muse Bridge' : a.model ? `${esc(shortModel(a.model))}${isChatOnly(a.model) ? ' · 💬' : ''}` : esc(a.role)}</small></span>

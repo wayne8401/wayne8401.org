@@ -637,3 +637,21 @@ details.history[open] > summary h2::after { transform: rotate(90deg); }
 .space .belt { stroke: rgba(56,232,255,.35); }
 .space .belt.on { stroke: #38e8ff; }
 @media (prefers-reduced-motion: reduce) { .sart, .eva, .drone, .shuttle, .blink, .scaffold { animation: none !important; } }
+
+/* Transforming robots: a quick fold/unfold when switching between vehicle and robot mode */
+.avatar.transforming-now svg { animation: tform 1.2s cubic-bezier(.3,1.4,.4,1) both; transform-origin: 50% 85%; }
+@keyframes tform { 0% { transform: scale(1, 1); filter: brightness(1); } 25% { transform: scale(1.25, .35) rotate(-8deg); filter: brightness(2.2); } 55% { transform: scale(.8, 1.25) rotate(6deg); filter: brightness(1.6); } 100% { transform: none; filter: none; } }
+.avatar.mode-vehicle .exhaust { animation: sblink 1s steps(2) infinite; }
+@media (prefers-reduced-motion: reduce) { .avatar.transforming-now svg { animation: none; } }
+
+/* PC / tablet: use the wider screen instead of a phone-width column */
+@media (min-width: 1000px) {
+  body { max-width: 1120px; padding-left: 28px; padding-right: 28px; }
+  .tabs { max-width: 640px; }
+  .desks { grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); }
+  .floor { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; align-items: start; }
+  .floor > .card { margin: 0; }
+  .templates { grid-auto-columns: 160px; }
+  .sheet-panel { max-width: 640px; margin-left: auto; margin-right: auto; }
+}
+@media (min-width: 1000px) { .sart { height: 100px; } }

@@ -16,8 +16,9 @@
   // Draws an avatar from a small spec. viewBox 64x64.
   // Draws an avatar from a small spec, viewBox 64x64. By default it's a small full-bodied robot;
   // { full: false } draws just the head (for tiny icons).
-  function avatarSvg(c, label = '', { full = true, bare = false } = {}) {
+  function avatarSvg(c, label = '', { full = true, bare = false, mode = 'robot' } = {}) {
     if (c.kind === 'human') return humanAvatar(c, label, { full, bare });
+    if (mode === 'vehicle' && (c.body === 'vehicle' || c.body === 'jet')) return vehicleSvg(c, label, bare);
     const { bg, fg, shape = 'round', eyes = 'dot', mouth = 'smile', top = 'none', body = 'none', cheeks = false, accent = '#ffffff' } = c;
     const parts = [];
     const G = (cls, svg) => (svg ? `<g class="p-${cls}">${svg}</g>` : ''); // named layers, so the builder can animate parts flying together
@@ -176,6 +177,29 @@
     </g>`;
   }
 
+  // Vehicle mode for transforming robots: vehicle kit → a car, jet kit → a jet. Original art.
+  function vehicleSvg(c, label, bare) {
+    const { bg = '#10284f', fg = '#7fb6ff', accent = '#ffd84d', body } = c;
+    const back = bare ? '' : `<rect width="64" height="64" rx="18" fill="${bg}"/>`;
+    const art = body === 'jet'
+      ? `<ellipse cx="32" cy="56" rx="22" ry="2.5" fill="#000" opacity=".25"/>
+        <path d="M20 33 L33 33 L23 15 L16 15 Z" fill="${fg}" opacity=".8"/>
+        <path d="M5 37 L44 30 Q58 32 61 37 Q58 42 44 44 Z" fill="${fg}"/>
+        <path d="M40 31.5 Q50 31.5 55 36 L42 36 Z" fill="#9fd8ff"/>
+        <path d="M20 40 L34 40 L24 58 L15 58 Z" fill="${fg}"/><path d="M5 37 L10 24 L15 34 Z" fill="${fg}"/>
+        <path d="M22 37 H44" stroke="${accent}" stroke-width="2"/><circle cx="5" cy="37" r="3" fill="${accent}" class="exhaust"/>
+        <rect x="28" y="35" width="5" height="4" rx="1" fill="${INK}" opacity=".4"/>`
+      : `<ellipse cx="32" cy="55" rx="26" ry="2.5" fill="#000" opacity=".25"/>
+        <path d="M17 31 L23 20 L42 20 L49 31 Z" fill="${fg}"/>
+        <path d="M21 30 L25.5 22.5 L31 22.5 L31 30 Z" fill="#9fd8ff"/><path d="M34 30 L34 22.5 L40.5 22.5 L45 30 Z" fill="#9fd8ff"/>
+        <rect x="6" y="30" width="52" height="16" rx="5" fill="${fg}"/><rect x="8" y="37" width="48" height="2.5" fill="${accent}"/>
+        <rect x="53" y="33" width="4" height="4" rx="1" fill="#fff6bf"/><rect x="7" y="33" width="3" height="4" rx="1" fill="#ff5c7a"/>
+        <circle cx="18" cy="47" r="6" fill="${INK}"/><circle cx="18" cy="47" r="2.4" fill="${accent}"/>
+        <circle cx="46" cy="47" r="6" fill="${INK}"/><circle cx="46" cy="47" r="2.4" fill="${accent}"/>
+        <path d="M30 41 L32 43 L34 41" stroke="${INK}" stroke-width="1.4" fill="none" opacity=".5"/>`;
+    return `<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="${label} (vehicle mode)">${back}<g class="vmode">${art}</g></svg>`;
+  }
+
   // The small robot body under the head: legs, arms, torso, plus the chosen armor or vehicle kit.
   function robotFrame(fg, accent, body) {
     const shade = (svg) => `<g opacity=".22" fill="${INK}">${svg}</g>`;
@@ -208,8 +232,8 @@
   // Looks for the three starter agents.
   const LOOKS = {
     scout: { bg: '#0f3b4a', fg: '#38e8ff', shape: 'helm', eyes: 'visor', mouth: 'vent', top: 'dish', body: 'vehicle', accent: '#4dffa6' },
-    quill: { bg: '#2b1f55', fg: '#b9a3ff', shape: 'hex', eyes: 'glasses', mouth: 'grille', top: 'crest', body: 'chassis', accent: '#ffd84d' },
-    atlas: { bg: '#123d2c', fg: '#4dffa6', shape: 'mech', eyes: 'scanner', mouth: 'faceplate', top: 'antenna', body: 'shoulders', accent: '#ffb84d' },
+    quill: { bg: '#2b1f55', fg: '#b9a3ff', shape: 'hex', eyes: 'glasses', mouth: 'grille', top: 'crest', body: 'jet', accent: '#ffd84d' },
+    atlas: { bg: '#123d2c', fg: '#4dffa6', shape: 'mech', eyes: 'scanner', mouth: 'faceplate', top: 'antenna', body: 'vehicle', accent: '#ffb84d' },
     muse: { bg: '#1f1a17', fg: '#efe4d6', shape: 'drone', eyes: 'big', mouth: 'smile', top: 'antenna', body: 'chassis', accent: '#ffb7a6', cheeks: true },
     echo: { bg: '#4a1036', fg: '#ff7ad9', shape: 'drone', eyes: 'cyclops', mouth: 'vent', top: 'sensors', body: 'jet', accent: '#38e8ff' },
   };
@@ -342,10 +366,10 @@
     // people
     skin: SKINS, hair: HAIR_STYLES, hairColor: HAIR_COLORS, face: FACES,
   };
-  /** One-tap looks for the Forge Look step: original robot builds in the spirit of a red-and-blue truck robot and a yellow scout robot, plus a few people. */
+  /** One-tap looks for the Forge Look step: original robot builds (a truck bot and a scout bot), plus a few people. */
   const PRESETS = [
-    { id: 'optimus', name: 'Optimus-style', look: { shape: 'square', eyes: 'visor', mouth: 'grille', top: 'antenna', body: 'vehicle', bg: '#10284f', fg: '#7fb6ff', accent: '#e5484d', cheeks: false } },
-    { id: 'bumblebee', name: 'Bumblebee-style', look: { shape: 'square', eyes: 'big', mouth: 'grin', top: 'antenna', body: 'chassis', bg: '#05070f', fg: '#ffd84d', accent: '#1a1a1a', cheeks: false } },
+    { id: 'hauler', name: 'Hauler (truck bot)', look: { shape: 'square', eyes: 'visor', mouth: 'grille', top: 'antenna', body: 'vehicle', bg: '#10284f', fg: '#7fb6ff', accent: '#e5484d', cheeks: false } },
+    { id: 'sprocket', name: 'Sprocket (scout bot)', look: { shape: 'square', eyes: 'big', mouth: 'grin', top: 'antenna', body: 'vehicle', bg: '#05070f', fg: '#ffd84d', accent: '#1a1a1a', cheeks: false } },
     { id: 'person-sam', name: 'Sam', look: { kind: 'human', skin: '#c68642', hair: 'short', hairColor: '#1b1b1b', face: 'square', eyes: 'dot', mouth: 'smile', fg: '#3e6bff', bg: '#10284f', accent: '#ffd84d' } },
     { id: 'person-maya', name: 'Maya', look: { kind: 'human', skin: '#8d5524', hair: 'afro', hairColor: '#1b1b1b', face: 'round', eyes: 'happy', mouth: 'grin', fg: '#ff7ad9', bg: '#4a1036', accent: '#ffd84d', cheeks: true } },
     { id: 'person-ella', name: 'Ella', look: { kind: 'human', skin: '#ffdfc4', hair: 'ponytail', hairColor: '#d9a441', face: 'oval', eyes: 'big', mouth: 'smile', fg: '#4dffa6', bg: '#123d2c', accent: '#ffffff' } },

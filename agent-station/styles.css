@@ -603,3 +603,37 @@ details.history[open] > summary h2::after { transform: rotate(90deg); }
 .fx { position: absolute; top: 2px; right: 4px; background: none; border: 0; color: inherit; opacity: .6; font-size: 12px; cursor: pointer; }
 .apcard { margin: 10px 0; }
 .aptext { width: 100%; box-sizing: border-box; background: rgba(255,255,255,.05); color: inherit; border: 1px solid rgba(255,255,255,.14); border-radius: 10px; padding: 8px; font: inherit; }
+
+/* Space sector: stations orbit a planet, robots build outside, shuttles fly the routes */
+.ffloor.space { padding: 10px; background: radial-gradient(120% 90% at 85% 10%, rgba(80,60,160,.35), transparent 60%), radial-gradient(90% 70% at 10% 100%, rgba(30,120,160,.25), transparent 60%), #04060f; overflow: hidden; }
+.space .fgrid { background: radial-gradient(1px 1px at 12% 18%, #fff, transparent), radial-gradient(1px 1px at 33% 72%, #cde, transparent), radial-gradient(1.5px 1.5px at 58% 30%, #fff, transparent), radial-gradient(1px 1px at 78% 84%, #fff, transparent), radial-gradient(1px 1px at 90% 12%, #bdf, transparent), radial-gradient(1px 1px at 46% 92%, #fff, transparent), radial-gradient(1px 1px at 6% 56%, #fff, transparent); }
+.planet { position: absolute; z-index: 0; right: -40px; bottom: -40px; width: 150px; height: 150px; border-radius: 50%; background: radial-gradient(circle at 35% 35%, #4a7bd6, #1b2f6b 60%, #0a1230); box-shadow: 0 0 40px rgba(80,140,255,.35); opacity: .75; pointer-events: none; }
+.planet::after { content: ''; position: absolute; inset: 44% -18%; border-radius: 50%; border: 2px solid rgba(200,220,255,.35); transform: rotate(-14deg); }
+.stile { background: rgba(10,14,30,.55) !important; border-color: rgba(120,160,255,.22) !important; justify-content: flex-end !important; gap: 2px; overflow: visible; }
+.stile b, .stile .slvl, .stile .fav { position: relative; z-index: 2; }
+.stile .slvl { font-size: 10px; color: var(--muted); }
+.stile.busy { border-color: rgba(77,255,166,.55) !important; box-shadow: 0 0 14px rgba(77,255,166,.18) !important; }
+.stile.building { border-color: #ffc85a !important; }
+.sart { position: absolute; left: 4px; right: 4px; top: 4px; height: 70px; pointer-events: none; animation: sfloat 6s ease-in-out infinite; }
+.stile .fav .avatar.xs { width: 22px; height: 22px; }
+.sart svg { width: 100%; height: 100%; }
+@keyframes sfloat { 50% { transform: translateY(-3px) rotate(-1deg); } }
+.blink { animation: sblink 1.2s steps(2) infinite; }
+@keyframes sblink { 50% { opacity: .25; } }
+.eva { position: absolute; z-index: 3; top: 10px; pointer-events: none; animation: seva 3.2s ease-in-out infinite; }
+.eva .avatar { width: 34px; height: 34px; }
+.eva0 { left: 2px; } .eva1 { right: 2px; animation-delay: -1.6s; }
+.eva .spark { position: absolute; right: -3px; top: 55%; width: 5px; height: 5px; border-radius: 50%; background: #fff6bf; box-shadow: 0 0 8px 3px #ffc85a; animation: sspark .4s steps(2) infinite; }
+.eva1 .spark { right: auto; left: -3px; }
+@keyframes seva { 50% { transform: translate(3px, 5px) rotate(8deg); } }
+@keyframes sspark { 50% { opacity: 0; } }
+.scaffold { animation: sblink 1.4s ease-in-out infinite; }
+.drone { animation: sdrone 2.4s linear infinite; }
+.d1 { offset-path: path('M60 20 C 90 20 90 52 60 52 C 30 52 30 20 60 20'); }
+.d2 { offset-path: path('M60 52 C 30 52 30 20 60 20 C 90 20 90 52 60 52'); }
+@keyframes sdrone { to { offset-distance: 100%; } }
+.shuttle { position: absolute; z-index: 4; font-size: 16px; left: var(--x1); top: var(--y1); transform: translate(-50%, -50%); animation: sship 3s ease-in-out infinite; pointer-events: none; filter: drop-shadow(0 0 6px rgba(56,232,255,.7)); }
+@keyframes sship { 0% { left: var(--x1); top: var(--y1); opacity: 0; } 15% { opacity: 1; } 85% { opacity: 1; } 100% { left: var(--x2); top: var(--y2); opacity: 0; } }
+.space .belt { stroke: rgba(56,232,255,.35); }
+.space .belt.on { stroke: #38e8ff; }
+@media (prefers-reduced-motion: reduce) { .sart, .eva, .drone, .shuttle, .blink, .scaffold { animation: none !important; } }

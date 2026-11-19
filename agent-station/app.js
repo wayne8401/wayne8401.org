@@ -403,9 +403,9 @@
   const pill = (s) => `<span class="pill s-${esc(s)}">${esc(s)}</span>`;
   const CH = window.AgentStationCharacters || { CHARACTERS: [], LOOKS: {}, avatarSvg: () => '', byId: () => null };
   const lookOf = (a) => (a?.look && CH.cleanLook(a.look)) || CH.LOOKS[a?.avatar] || CH.byId(a?.avatar)?.look || CH.LOOKS[a?.id] || null;
-  const avatar = (a, size = '', { bare = false, alive = false, speaking = false } = {}) => {
+  const avatar = (a, size = '', { bare = false, alive = false, speaking = false, full } = {}) => {
     const look = lookOf(a);
-    return look ? `<span class="avatar art ${size}${bare ? ' bare' : ''}${alive ? ' alive' : ''}${speaking ? ' speaking' : ''}">${CH.avatarSvg(look, esc(a.name || ''), { full: !/\b(sm|xs)\b/.test(size), bare })}</span>`
+    return look ? `<span class="avatar art ${size}${bare ? ' bare' : ''}${alive ? ' alive' : ''}${speaking ? ' speaking' : ''}">${CH.avatarSvg(look, esc(a.name || ''), { full: full ?? !/\b(sm|xs)\b/.test(size), bare })}</span>`
       : `<span class="avatar ${size}" style="background:${colorOf(a.id)}">${esc((a.name || '?').slice(0, 1))}</span>`;
   };
   const charAvatar = (c, size = '') => `<span class="avatar art ${size}">${CH.avatarSvg(c.look, esc(c.name), { full: !/\b(sm|xs)\b/.test(size) })}</span>`;
@@ -413,7 +413,7 @@
   const empty = (msg, cta = '') => `<div class="empty">${msg}${cta}</div>`;
 
   /* ------------------------------------------------ factory floor + approvals */
-  const FLOOR_COLS = 3;
+  const FLOOR_COLS = 2;
   const floorLayout = () => store.get('floor', {});
   function floorPos(sts) {
     const L = floorLayout(), taken = new Set(), pos = {};
@@ -421,19 +421,54 @@
     sts.forEach((st) => { if (pos[st.id]) return; let i = 0; for (;; i++) { const c = i % FLOOR_COLS, r = Math.floor(i / FLOOR_COLS); if (!taken.has(c + ',' + r)) { pos[st.id] = { c, r }; taken.add(c + ',' + r); break; } } });
     return pos;
   }
+  // Space sector: each station grows modules as its crew finishes tasks (1 module per 3 tasks, up to level 5).
+  const spaceSeen = {}; let spaceReady = false;
+  function stationGrowth(id) {
+    const crew = new Set(S.agents.filter((a) => a.station === id).map((a) => a.id));
+    const done = S.tasks.filter((t) => t.status === 'done' && crew.has(t.agent)).length;
+    const level = Math.min(5, 1 + Math.floor(done / 3));
+    return { level, done, left: 3 - (done % 3) };
+  }
+  const STATION_HUES = ['#38e8ff', '#ff7ad9', '#4dffa6', '#ffd84d', '#b9a3ff', '#ff9a4d'];
+  function stationSvg(id, level, busy) {
+    const hue = STATION_HUES[[...id].reduce((n, c) => n + c.charCodeAt(0), 0) % STATION_HUES.length];
+    const mods = [[-1, 0], [1, 0], [0, -1], [0, 1], [-2, 0], [2, 0]].slice(0, Math.max(0, level));
+    const M = 12; // module spacing
+    const modSvg = mods.map(([dx, dy]) => `<rect x="${60 + dx * M * 1.5 - 7}" y="${36 + dy * M - 5}" width="14" height="10" rx="3" fill="#c7cfdc"/><rect x="${60 + dx * M * 1.5 - 4}" y="${36 + dy * M - 2}" width="8" height="4" rx="1" fill="${hue}" opacity="${busy ? 1 : .55}"/>`).join('');
+    const truss = mods.map(([dx, dy]) => `<line x1="60" y1="36" x2="${60 + dx * M * 1.5}" y2="${36 + dy * M}" stroke="#6b7690" stroke-width="2"/>`).join('');
+    if (!level) return `<svg viewBox="0 0 120 72"><g class="scaffold"><rect x="44" y="24" width="32" height="24" fill="none" stroke="#ffc85a" stroke-width="1.5" stroke-dasharray="3 2"/><path d="M44 24 L76 48 M76 24 L44 48" stroke="#ffc85a" stroke-width="1" opacity=".6"/></g>
+      <g class="drone d1"><circle r="3" fill="#c7cfdc"/><circle r="1.2" fill="${hue}"/></g><g class="drone d2"><circle r="3" fill="#c7cfdc"/><circle r="1.2" fill="#ffc85a"/></g></svg>`;
+    return `<svg viewBox="0 0 120 72">
+      <rect x="6" y="31" width="22" height="10" fill="#1d3a6b" stroke="#3e6bff" stroke-width="1"/><rect x="92" y="31" width="22" height="10" fill="#1d3a6b" stroke="#3e6bff" stroke-width="1"/>
+      <path d="M13 31 V41 M20 31 V41 M99 31 V41 M106 31 V41" stroke="#3e6bff" stroke-width=".8"/><line x1="28" y1="36" x2="48" y2="36" stroke="#6b7690" stroke-width="2"/><line x1="72" y1="36" x2="92" y2="36" stroke="#6b7690" stroke-width="2"/>
+      ${truss}<ellipse cx="60" cy="36" rx="17" ry="6" fill="none" stroke="#6b7690" stroke-width="2"/>${modSvg}
+      <circle cx="60" cy="36" r="9" fill="#e8ecf6"/><circle cx="60" cy="36" r="4" fill="${hue}" class="${busy ? 'blink' : ''}"/>
+      <line x1="60" y1="27" x2="60" y2="18" stroke="#c7cfdc" stroke-width="1.4"/><circle cx="60" cy="17" r="2" fill="${busy ? '#4dffa6' : '#ff5c7a'}" class="blink"/></svg>`;
+  }
   function floorHtml() {
     const sts = S.stations; if (!sts.length) return empty('No rooms yet.');
     const pos = floorPos(sts), rows = Math.max(...Object.values(pos).map((p) => p.r)) + 2;
+    const now = Date.now();
     const tiles = sts.map((st) => {
-      const p = pos[st.id], team = S.agents.filter((a) => a.status !== undefined && a.station === st.id), busy = team.some((a) => a.status === 'running');
-      return `<div class="ftile ${busy ? 'busy' : ''}" data-room="${esc(st.id)}" style="grid-column:${p.c + 1};grid-row:${p.r + 1}"><b>${esc(st.name)}</b><span class="fav">${team.slice(0, 4).map((a) => avatar(a, 'xs')).join('')}</span>${st.custom ? `<button class="fx" data-act="room-del" data-id="${esc(st.id)}" aria-label="Remove room">✕</button>` : ''}</div>`;
+      const p = pos[st.id], team = S.agents.filter((a) => a.status !== undefined && a.station === st.id), workers = team.filter((a) => a.status === 'running'), busy = workers.length > 0;
+      const g = stationGrowth(st.id), born = (spaceSeen[st.id] ||= now), building = now - born < 6000 && Object.keys(spaceSeen).length > sts.length - 1 && spaceReady;
+      const eva = workers.slice(0, 2).map((a, i) => `<span class="eva eva${i}">${avatar(a, 'xs', { bare: true, full: true })}<i class="spark"></i></span>`).join('');
+      return `<div class="ftile stile ${busy ? 'busy' : ''} ${building ? 'building' : ''}" data-room="${esc(st.id)}" style="grid-column:${p.c + 1};grid-row:${p.r + 1}">
+        <span class="sart" aria-hidden="true">${stationSvg(st.id, building ? 0 : g.level, busy)}</span>${eva}
+        <b>${esc(st.name)}</b>
+        <span class="slvl">${building ? '🏗️ Under construction' : `Lv ${g.level}${g.level < 5 ? ` · ${g.left} task${g.left > 1 ? 's' : ''} to next module` : ' · fully built'}`}</span>
+        <span class="fav">${team.slice(0, 4).map((a) => avatar(a, 'xs')).join('')}</span>
+        ${st.custom ? `<button class="fx" data-act="room-del" data-id="${esc(st.id)}" aria-label="Remove station">✕</button>` : ''}</div>`;
     }).join('');
+    spaceReady = true;
     // conveyor belts: link rooms of consecutive steps in each production line
     const links = [];
     (S.workflows || []).forEach((wf) => { for (let i = 0; i < wf.steps.length - 1; i++) { const a = agentById(wf.steps[i].agent), b = agentById(wf.steps[i + 1].agent); if (a && b && a.station !== b.station && pos[a.station] && pos[b.station]) links.push([a.station, b.station, wf.status === 'running']); } });
     const cw = 100 / FLOOR_COLS, ch = 100 / rows, cx = (p) => (p.c + .5) * cw, cy = (p) => (p.r + .5) * ch;
     const svg = `<svg class="fbelts" viewBox="0 0 100 100" preserveAspectRatio="none">${links.map(([a, b, on]) => `<line x1="${cx(pos[a])}" y1="${cy(pos[a])}" x2="${cx(pos[b])}" y2="${cy(pos[b])}" class="belt ${on ? 'on' : ''}"/>`).join('')}</svg>`;
-    return `<div class="fgrid" id="fgrid" style="grid-template-columns:repeat(${FLOOR_COLS},1fr);grid-template-rows:repeat(${rows},64px)">${svg}${tiles}</div><p class="muted tiny" style="margin:8px 0 0">Press and drag a room to move it. Belts show production lines linking rooms.</p>`;
+    const ships = links.filter((l) => l[2]).map(([a, b], i) => `<span class="shuttle" style="--x1:${cx(pos[a])}%;--y1:${cy(pos[a])}%;--x2:${cx(pos[b])}%;--y2:${cy(pos[b])}%;animation-delay:${i * .7}s">🛸</span>`).join('');
+    return `<div class="fgrid" id="fgrid" style="grid-template-columns:repeat(${FLOOR_COLS},1fr);grid-template-rows:repeat(${rows},150px)"><span class="planet" aria-hidden="true"></span>${svg}${ships}${tiles}</div>
+      <p class="muted tiny" style="margin:8px 0 0">Stations grow a new module every 3 tasks their crew finishes. Busy robots go outside to build. Shuttles fly work along routes while a line runs. Press and drag a station to move it.</p>`;
   }
   const PLATFORM_URL = { tiktok: 'https://www.tiktok.com/upload', instagram: 'https://www.instagram.com/', facebook: 'https://www.facebook.com/', etsy: 'https://www.etsy.com/your/shops/me/dashboard', shopify: 'https://admin.shopify.com/' };
   function approvalsSheet() {
@@ -463,8 +498,8 @@
       <div class="card line" id="prodLine" data-region="line"></div>
       <div class="h2row"><h2>✅ Approvals</h2><span class="muted tiny">nothing posts without you</span></div>
       <div class="card" data-region="approvals"></div>
-      <div class="h2row"><h2>🏗️ Factory floor</h2><span><button class="link" data-act="room-add">➕ Room</button> · <button class="link" data-act="line-build">🔗 Line</button></span></div>
-      <div class="card ffloor" data-region="ffloor"></div>
+      <div class="h2row"><h2>🌌 Space sector</h2><span><button class="link" data-act="room-add">🚀 Launch station</button> · <button class="link" data-act="line-build">🛸 Route</button></span></div>
+      <div class="card ffloor space" data-region="ffloor"></div>
       <div class="h2row"><h2>🖥️ Workstations</h2><span><button class="link" data-act="forge">🛠️ Build</button> · <button class="link" data-act="new-agent">✨ Gallery</button></span></div>
       <div class="floor" id="floor" data-region="floor"></div>
       <details class="card mapcard"><summary><b>🛰️ Network map</b> <span class="muted tiny">how stations connect</span></summary><div data-region="map"></div></details>
@@ -1708,7 +1743,7 @@
     'ap-reject': (id) => act(() => call('POST', `approvals/${encodeURIComponent(id)}`, { decision: 'reject' }), 'Rejected'),
     'ap-posted': (id) => act(() => call('POST', `approvals/${encodeURIComponent(id)}`, { decision: 'posted' }), 'Marked as posted'),
     'ap-copy': async (id) => { const it = (S.approvals || []).find((x) => x.id === id); try { await navigator.clipboard.writeText(it ? it.text : ''); toast('Copied'); } catch { toast('Press and hold the text to copy', 'bad'); } },
-    'room-add': () => { const n = prompt('Name your new room'); if (n && n.trim()) act(() => call('POST', 'stations', { name: n.trim() }), 'Room built'); },
+    'room-add': () => { const n = prompt('Name your new space station'); if (n && n.trim()) act(() => call('POST', 'stations', { name: n.trim() }), '🚀 Station launched: construction drones are on it'); },
     'room-del': (id) => { if (confirm('Remove this room?')) act(() => call('DELETE', `stations/${encodeURIComponent(id)}`), 'Room removed'); },
     'line-build': () => { ui.lineAgents = []; ui.lineName = ''; openSheet('line'); },
     'line-pick': (id) => { const l = ui.lineAgents || (ui.lineAgents = []); const i = l.indexOf(id); if (i >= 0) l.splice(i, 1); else l.push(id); const n = $('#lineName'); if (n) ui.lineName = n.value; renderSheet(); },

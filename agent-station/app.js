@@ -1124,6 +1124,7 @@
     V.mount(host, {
       onAgent: (id) => ACTIONS.agent(id),
       onOutbox: () => ACTIONS.outbox(),
+      look: (a) => lookOf(a),
       onCommander: () => toast('That\'s you, Commander 🫡 Your crew is on it.'),
       commanderSprite: (frame) => window.AgentStationCommander?.svg({ full: true, bare: true, frame }),
       sprite: (a, frame) => { const look = a.id === 'npc' ? a.look : lookOf(a); return look ? CH.avatarSvg(look, '', { full: true, bare: true, frame }) : null; },

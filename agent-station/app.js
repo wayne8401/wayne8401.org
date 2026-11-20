@@ -525,9 +525,9 @@
       <div class="card line" id="prodLine" data-region="line"></div>
       <div class="h2row"><h2>✅ Approvals</h2><span class="muted tiny">nothing posts without you</span></div>
       <div class="card" data-region="approvals"></div>
-      <div class="h2row"><h2>🛰️ Space station</h2><span><button class="link" data-act="room-add">🚀 Launch station</button> · <button class="link" data-act="line-build">🛸 Route</button></span></div>
+      <div class="h2row"><h2>${window.SPACE_AGENCY ? '🏙️ Your city' : '🛰️ Space station'}</h2><span><button class="link" data-act="room-add">${window.SPACE_AGENCY ? '🏗️ New agency building' : '🚀 Launch station'}</button> · <button class="link" data-act="line-build">${window.SPACE_AGENCY ? '🚚 Route' : '🛸 Route'}</button></span></div>
       <div class="card svcard"><div class="svhost" id="svhost"></div>
-        <div class="svbar"><span class="muted tiny">Drag to look around · pinch or scroll to zoom · tap a robot</span><span><button class="link" data-act="sv-fit">⤢ Fit</button> · <button class="link" data-act="sv-full">⛶ Full screen</button></span></div></div>
+        <div class="svbar"><span class="muted tiny">${window.SPACE_AGENCY ? 'Drag to look around · scroll to zoom · tap a building or a person · build with the tools on the left' : 'Drag to look around · pinch or scroll to zoom · tap a robot'}</span><span><button class="link" data-act="sv-fit">⤢ Fit</button> · <button class="link" data-act="sv-full">⛶ Full screen</button></span></div></div>
       <details class="card roomedit"><summary><b>🧱 Edit rooms</b> <span class="muted tiny">move, remove, see crews</span></summary><div class="ffloor space" data-region="ffloor"></div></details>
       <div class="h2row"><h2>🖥️ Workstations</h2><span><button class="link" data-act="forge">🛠️ Build</button> · <button class="link" data-act="new-agent">✨ Gallery</button></span></div>
       <div class="floor" id="floor" data-region="floor"></div>
@@ -1120,11 +1120,12 @@
     update();
   }
   function stationView() {
-    const host = $('#svhost'), V = window.AgentStationView; if (!host || !V) return;
+    const host = $('#svhost'), V = window.SPACE_AGENCY ? window.SpaceAgencyCity : window.AgentStationView; if (!host || !V) return;
     V.mount(host, {
       onAgent: (id) => ACTIONS.agent(id),
       onOutbox: () => ACTIONS.outbox(),
       look: (a) => lookOf(a),
+      toast: (m) => toast(m),
       onCommander: () => toast('That\'s you, Commander 🫡 Your crew is on it.'),
       commanderSprite: (frame) => window.AgentStationCommander?.svg({ full: true, bare: true, frame }),
       sprite: (a, frame) => { const look = a.id === 'npc' ? a.look : lookOf(a); return look ? CH.avatarSvg(look, '', { full: true, bare: true, frame }) : null; },

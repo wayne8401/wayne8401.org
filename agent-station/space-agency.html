@@ -52,12 +52,24 @@
 
   <div id="toast" class="toast" role="status"></div>
 
-  <script src="characters.js"></script>
-  <script src="engine.js"></script>
-  <script src="commander.js"></script>
-  <script src="figures.js"></script>
+  <script>if (!window.SPACE_AGENCY_BLOCKED) document.write('<script src="characters.js"><\/script>');</script>
+  <script>if (!window.SPACE_AGENCY_BLOCKED) document.write('<script src="engine.js"><\/script>');</script>
+  <script>if (!window.SPACE_AGENCY_BLOCKED) document.write('<script src="commander.js"><\/script>');</script>
+  <script>if (!window.SPACE_AGENCY_BLOCKED) document.write('<script src="figures.js"><\/script>');</script>
+  <script>
+    // Space Agency is for PCs only: phones and small tablets are sent to Agent Station instead.
+    (function () {
+      var phone = /Android|iPhone|iPod|Mobile|Windows Phone/i.test(navigator.userAgent) || (Math.min(screen.width, screen.height) < 700 && matchMedia('(pointer: coarse)').matches);
+      if (!phone) return;
+      document.body.innerHTML = '<div style="min-height:100vh;display:grid;place-items:center;padding:24px;text-align:center;font:16px system-ui,sans-serif;color:#e8eefc;background:#05070f">'
+        + '<div><img src="space-agency-icon.svg" alt="" width="96" height="96" style="border-radius:22px"><h1 style="margin:16px 0 8px">Space Agency is for your PC</h1>'
+        + '<p style="color:#9aa7c7;max-width:340px;margin:0 auto 20px">Open this link on your computer to build your city. On your phone, use Agent Station.</p>'
+        + '<a href="index.html" style="display:inline-block;padding:12px 20px;border-radius:12px;background:#38e8ff;color:#05070f;font-weight:700;text-decoration:none">Open Agent Station</a></div></div>';
+      window.SPACE_AGENCY_BLOCKED = true;
+    })();
+  </script>
   <script>window.SPACE_AGENCY = true;</script>
-  <script src="city-view.js"></script>
-  <script src="app.js"></script>
+  <script>if (!window.SPACE_AGENCY_BLOCKED) document.write('<script src="city-view.js"><\/script>');</script>
+  <script>if (!window.SPACE_AGENCY_BLOCKED) document.write('<script src="app.js"><\/script>');</script>
 </body>
 </html>

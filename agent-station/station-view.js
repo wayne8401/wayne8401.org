@@ -1,6 +1,7 @@
 /* Agent Station: Station View
- * A top-down, game-style view of your space station drawn on a canvas.
- * Each station is a room off a central corridor; your agents walk around as robots,
+ * A top-down, game-style view of your orbital ring station drawn on a canvas.
+ * A central Command Dome with round, glass-domed pods arranged around it on an outer ring,
+ * joined by glass tube walkways. Each pod is one of your stations; your agents walk around as robots,
  * sit at their desks while they work, and machines/belts run while work happens.
  * All art here is drawn in code and is original (CC0), like the rest of Agent Station.
  *
@@ -48,42 +49,27 @@
   }
   function build(d) {
     const stations = d.stations.slice(0, 10);
-    const rooms = [];
-    // lounge (decorative) first on the top row, then stations alternate bottom/top
-    const rows = { top: [], bottom: [] };
-    rows.top.push({ id: '__lounge', name: 'LOUNGE', deco: 'lounge', floor: 'wood', w: 18 * T });
-    stations.forEach((st, i) => {
-      const crew = d.agents.filter((a) => a.station === st.id).length;
-      const w = Math.max(16, 6 + 5 * Math.min(Math.max(crew, 1), 4)) * T;
+    const hub = { id: '__lounge', name: 'COMMAND DOME', deco: 'lounge', floor: 'hub', R: 10.5 * T, cx: 0, cy: 0, hub: true };
+    const pods = stations.map((st) => {
+      const crew = Math.min(Math.max(d.agents.filter((a) => a.station === st.id).length, 1), 4);
       const k = kindOf(st);
-      const floor = k === 'studio' ? 'wood' : k === 'ops' ? 'grate' : k === 'research' ? 'metal' : FLOORS[hash(st.id) % FLOORS.length];
-      (i % 2 ? rows.top : rows.bottom).push({ id: st.id, name: st.name.toUpperCase(), region: (st.region || '').toUpperCase(), kind: k, floor, w, custom: st.custom, equipment: Array.isArray(st.equipment) ? st.equipment : null });
+      return { id: st.id, name: st.name.toUpperCase(), region: (st.region || '').toUpperCase(), kind: k, floor: k === 'studio' ? 'warm' : k === 'ops' ? 'violet' : k === 'research' ? 'teal' : 'cool', R: Math.max(10 * T, (crew * 5 + 3) * T / 1.36), custom: st.custom, equipment: Array.isArray(st.equipment) ? st.equipment : null };
     });
-    const corrY = ROOM_H + 2 * T;
-    const startX = 12 * T;
-    const place = (list, top) => {
-      let x = startX + (top ? 0 : 6 * T);
-      for (const r of list) {
-        r.x = x; r.y = top ? corrY - ROOM_H : corrY + CORR_H; r.h = ROOM_H; r.top = top;
-        r.door = { x: r.x + Math.round(r.w / 2 / T) * T - T, w: 2 * T };
-        x += r.w + 2 * T;
-        rooms.push(r);
-      }
-      return x;
-    };
-    const endTop = place(rows.top, true), endBottom = place(rows.bottom, false);
-    const corrX = 8 * T, corrW = Math.max(endTop, endBottom) - corrX + 4 * T;
-    // storage bays capping both ends of the corridor
-    rooms.push({ id: '__bayL', name: 'STORAGE', deco: 'storage', floor: 'grate', x: corrX - 9 * T, y: corrY - 3 * T, w: 9 * T, h: 10 * T, side: 'left' });
-    rooms.push({ id: '__outbox', name: 'OUTBOX', deco: 'storage', outbox: true, floor: 'steel', x: corrX + corrW, y: corrY - 3 * T, w: 9 * T, h: 10 * T, side: 'right' });
+    pods.push({ id: '__outbox', name: 'OUTBOX', deco: 'storage', outbox: true, floor: 'cool', R: 7.2 * T });
+    pods.push({ id: '__bayL', name: 'HANGAR', deco: 'storage', floor: 'cool', R: 7.2 * T });
+    const N = pods.length, Rmax = Math.max(...pods.map((x) => x.R));
+    const D = Math.max(hub.R + 6 * T + Rmax, (Rmax + 2.5 * T) / Math.sin(Math.PI / N));
+    pods.forEach((pd, i) => { pd.ang = -Math.PI / 2 + i * 2 * Math.PI / N; pd.cx = Math.cos(pd.ang) * D; pd.cy = Math.sin(pd.ang) * D; });
+    const rooms = [hub, ...pods];
+    for (const r of rooms) { const a = r.R * .68; r.x = r.cx - a; r.y = r.cy - a; r.w = r.h = 2 * a; r.top = r.hub ? true : r.cy <= 0; }
     for (const r of rooms) furnish(r, d);
-    const minX = corrX - 9 * T - 4 * T, maxX = corrX + corrW + 9 * T + 4 * T;
-    return { rooms, corr: { x: corrX, y: corrY, w: corrW, h: CORR_H }, bounds: { x: minX, y: -2 * T, w: maxX - minX, h: corrY + CORR_H + ROOM_H + 4 * T } };
+    const ext = D + Rmax + 6 * T;
+    return { rooms, hub, ring: D, bounds: { x: -ext, y: -ext, w: ext * 2, h: ext * 2 } };
   }
   function furnish(r, d) {
     r.items = []; r.desks = []; r.lamps = [];
     const ix = r.x + 2 * T, iw = r.w - 4 * T;
-    for (let x = r.x + 3 * T; x < r.x + r.w - 2 * T; x += 4 * T) r.lamps.push({ x, y: r.y + T * 0.9 });
+
     if (r.deco === 'lounge') {
       r.items.push({ t: 'easel', x: r.x + r.w / 2 - T, y: r.y + 2.2 * T });
       r.items.push({ t: 'shelf', x: ix + T, y: r.y + 4.5 * T }, { t: 'cabinet', x: ix + T, y: r.y + 7.5 * T });
@@ -114,89 +100,66 @@
   }
 
   /* ------------------------------------------------------------ static drawing */
-  function roomPath(c, r, inset = 0) {
-    const b = r.deco === 'storage' ? T : BEVEL, x = r.x + inset, y = r.y + inset, w = r.w - inset * 2, h = r.h - inset * 2;
-    c.beginPath();
-    c.moveTo(x + b, y); c.lineTo(x + w - b, y); c.lineTo(x + w, y + b); c.lineTo(x + w, y + h - b);
-    c.lineTo(x + w - b, y + h); c.lineTo(x + b, y + h); c.lineTo(x, y + h - b); c.lineTo(x, y + b); c.closePath();
-  }
-  function floorFill(c, kind, x, y, w, h, seed) {
-    const S = { metal: ['#2b2e35', '#24272d', '#353943'], wood: ['#3b2d22', '#30251c', '#4a3828'], grate: ['#2c2b22', '#25241c', '#3a3826'], steel: ['#33373f', '#2b2f36', '#41464f'] }[kind] || ['#2b2e35', '#24272d', '#353943'];
-    c.fillStyle = S[0]; c.fillRect(x, y, w, h);
-    if (kind === 'wood') {
-      for (let yy = y, row = 0; yy < y + h; yy += T * 0.75, row++) {
-        let off = ((row * 37 + seed) % 5) * T * 0.8;
-        for (let xx = x - off; xx < x + w; xx += T * 4) {
-          c.fillStyle = (row + Math.floor(xx / T)) % 3 ? S[0] : S[2]; c.globalAlpha = .55; c.fillRect(xx, yy, T * 4 - 1, T * 0.75 - 1); c.globalAlpha = 1;
-          c.fillStyle = S[1]; c.fillRect(xx + T * 4 - 1, yy, 1, T * 0.75);
-        }
-        c.fillStyle = S[1]; c.fillRect(x, yy + T * 0.75 - 1, w, 1);
-      }
-    } else if (kind === 'grate') {
-      c.strokeStyle = S[2]; c.lineWidth = 1;
-      for (let xx = x; xx < x + w; xx += T) { c.beginPath(); c.moveTo(xx + .5, y); c.lineTo(xx + .5, y + h); c.stroke(); }
-      for (let yy = y; yy < y + h; yy += T) { c.beginPath(); c.moveTo(x, yy + .5); c.lineTo(x + w, yy + .5); c.stroke(); }
-      c.globalAlpha = .25; c.strokeStyle = '#0d0d08';
-      for (let k = -h; k < w; k += 5) { c.beginPath(); c.moveTo(x + k, y); c.lineTo(x + k + h, y + h); c.stroke(); }
-      c.globalAlpha = 1;
-    } else {
-      const P = 2 * T;
-      for (let yy = y; yy < y + h; yy += P) for (let xx = x; xx < x + w; xx += P) {
-        c.fillStyle = ((xx / P + yy / P) | 0) % 2 ? S[0] : S[2]; c.globalAlpha = .35; c.fillRect(xx + 1, yy + 1, P - 2, P - 2); c.globalAlpha = 1;
-        c.strokeStyle = S[1]; c.lineWidth = 1.5; c.strokeRect(xx + .75, yy + .75, P - 1.5, P - 1.5);
-        c.fillStyle = '#555b66'; for (const [dx, dy] of [[3, 3], [P - 4, 3], [3, P - 4], [P - 4, P - 4]]) c.fillRect(xx + dx, yy + dy, 1.5, 1.5);
+  function roomPath(c, r, inset = 0) { c.beginPath(); c.arc(r.cx, r.cy, Math.max(1, r.R - inset), 0, Math.PI * 2); }
+  const inRoom = (r, x, y) => Math.hypot(x - r.cx, y - r.cy) < r.R - 2;
+  const FLOOR = { hub: ['#c3cdd6', '#a9b6c2'], teal: ['#b4ccd0', '#97b3b9'], warm: ['#d3c6b8', '#b9aa9a'], violet: ['#bfbed8', '#a3a2c2'], cool: ['#bcc6d0', '#a1adb9'] };
+  function hexFloor(c, kind, x, y, w, h) {
+    const [base, line] = FLOOR[kind] || FLOOR.cool, sz = T * .82, hw = Math.sqrt(3) * sz;
+    c.fillStyle = base; c.fillRect(x, y, w, h);
+    c.strokeStyle = line; c.lineWidth = 1;
+    for (let row = 0, yy = y - sz; yy < y + h + sz; row++, yy += sz * 1.5) {
+      for (let xx = x - hw + (row % 2 ? hw / 2 : 0); xx < x + w + hw; xx += hw) {
+        c.beginPath();
+        for (let k = 0; k < 6; k++) { const a = Math.PI / 6 + k * Math.PI / 3, px = xx + Math.cos(a) * sz, py = yy + Math.sin(a) * sz; k ? c.lineTo(px, py) : c.moveTo(px, py); }
+        c.closePath(); c.stroke();
       }
     }
   }
-  function wallFace(c, r) { // the back wall's inner face: panels + little amber lights, gives the 3/4 depth look
-    const y = r.y + 2, h = T * 1.4;
-    c.save(); roomPath(c, r, 2); c.clip();
-    c.fillStyle = '#20232a'; c.fillRect(r.x, y, r.w, h);
-    for (let x = r.x + T; x < r.x + r.w - T; x += 2 * T) {
-      c.fillStyle = '#2b2f38'; c.fillRect(x + 2, y + 3, 2 * T - 4, h - 6);
-      c.strokeStyle = '#3c414c'; c.lineWidth = 1; c.strokeRect(x + 2.5, y + 3.5, 2 * T - 5, h - 7);
+  function drawRim(c, r, doors) {
+    const R = r.R;
+    c.lineWidth = WALL + 7; c.strokeStyle = 'rgba(5,10,20,.65)'; roomPath(c, r, -2); c.stroke();
+    c.lineWidth = WALL; c.strokeStyle = '#e6edf3'; roomPath(c, r); c.stroke();
+    c.lineWidth = 2; c.strokeStyle = '#9fb0bf'; roomPath(c, r, -WALL / 2 + 1); c.stroke();
+    c.save(); c.shadowColor = '#38e8ff'; c.shadowBlur = 8; c.lineWidth = 2; c.strokeStyle = '#38e8ff'; roomPath(c, r, WALL / 2 + 1.5); c.stroke(); c.restore();
+    // porthole windows around the rim
+    const n = Math.max(10, Math.round(R / (2.2 * T)) * 2);
+    for (let i = 0; i < n; i++) {
+      const a = i * Math.PI * 2 / n; if (doors.some((da) => Math.abs(Math.atan2(Math.sin(a - da), Math.cos(a - da))) < .32)) continue;
+      c.save(); c.translate(r.cx + Math.cos(a) * R, r.cy + Math.sin(a) * R); c.rotate(a);
+      c.fillStyle = '#1a2a3d'; c.fillRect(-2, -T * .55, 4, T * 1.1); c.fillStyle = 'rgba(120,200,255,.55)'; c.fillRect(-1, -T * .4, 1.6, T * .5); c.restore();
     }
-    for (const l of r.lamps) { c.fillStyle = '#e9b949'; c.fillRect(l.x - 4, y + 4, 8, 3); }
-    c.fillStyle = 'rgba(0,0,0,.35)'; c.fillRect(r.x, y + h, r.w, 4);
-    c.restore();
-  }
-  function hazard(c, x, y, w, h) {
-    c.save(); c.beginPath(); c.rect(x, y, w, h); c.clip();
-    c.fillStyle = '#1a1c22'; c.fillRect(x, y, w, h); c.fillStyle = '#d9a73e';
-    for (let k = -h; k < w + h; k += 8) { c.beginPath(); c.moveTo(x + k, y + h); c.lineTo(x + k + 4, y + h); c.lineTo(x + k + 4 + h, y); c.lineTo(x + k + h, y); c.fill(); }
-    c.restore();
-  }
-  function drawWalls(c, r) {
-    roomPath(c, r); c.lineJoin = 'round';
-    c.strokeStyle = '#15171c'; c.lineWidth = WALL + 6; c.stroke();
-    c.strokeStyle = '#4a4f5a'; c.lineWidth = WALL; c.stroke();
-    c.strokeStyle = '#6a707c'; c.lineWidth = 2; roomPath(c, r, -WALL / 2 + 1); c.stroke();
-    c.strokeStyle = '#2a2d34'; c.lineWidth = 2; roomPath(c, r, WALL / 2 - 1); c.stroke();
-    // rivets along the wall
-    c.fillStyle = '#7a808c';
-    for (let x = r.x + 2 * T; x < r.x + r.w - 2 * T; x += T * 1.5) { c.fillRect(x, r.y - 1, 2, 2); c.fillRect(x, r.y + r.h - 1, 2, 2); }
-  }
-  function cutDoor(c, r, corr) {
-    if (r.deco === 'storage') {
-      const x = r.side === 'left' ? r.x + r.w - WALL : r.x - WALL, y = corr.y + 6, h = corr.h - 12;
-      floorFill(c, 'steel', x, y, WALL * 2, h, 1); hazard(c, x, y, WALL * 2, 3); hazard(c, x, y + h - 3, WALL * 2, 3); return;
+    for (const da of doors) { // door: a gap in the rim with a teal frame
+      c.save(); c.translate(r.cx, r.cy); c.rotate(da);
+      c.fillStyle = (FLOOR[r.floor] || FLOOR.cool)[0]; c.fillRect(R - WALL, -1.75 * T, WALL * 2, 3.5 * T);
+      c.fillStyle = '#38e8ff'; c.fillRect(R - WALL, -1.75 * T - 2, WALL * 2, 2); c.fillRect(R - WALL, 1.75 * T, WALL * 2, 2); c.restore();
     }
-    const y = r.top ? r.y + r.h - WALL : r.y - WALL;
-    floorFill(c, 'steel', r.door.x, y, r.door.w, WALL * 2, 3);
-    hazard(c, r.door.x - 3, y, 3, WALL * 2); hazard(c, r.door.x + r.door.w, y, 3, WALL * 2);
+    // the dome: a soft glass sheen over the top-left of the pod
+    c.save(); c.strokeStyle = 'rgba(255,255,255,.09)'; c.lineWidth = R * .22; c.beginPath(); c.arc(r.cx, r.cy, R * .74, Math.PI * 1.02, Math.PI * 1.48); c.stroke(); c.restore();
+  }
+  function drawTube(c, w, pod) {
+    const hub = w.hub, a = pod.ang, from = hub.R - 2, to = w.ring - pod.R + 2, half = 1.75 * T;
+    c.save(); c.translate(hub.cx, hub.cy); c.rotate(a);
+    c.fillStyle = 'rgba(5,10,20,.6)'; c.fillRect(from, -half - 6, to - from, half * 2 + 12);
+    c.fillStyle = '#a9b8c4'; c.fillRect(from, -half, to - from, half * 2);
+    c.strokeStyle = '#97a7b4'; c.lineWidth = 1; for (let x = from; x < to; x += T) { c.beginPath(); c.moveTo(x, -half); c.lineTo(x, half); c.stroke(); }
+    c.fillStyle = '#e6edf3'; c.fillRect(from, -half - 4, to - from, 4); c.fillRect(from, half, to - from, 4);
+    c.fillStyle = 'rgba(255,255,255,.18)'; c.fillRect(from, -half + 3, to - from, 3); // glass reflection
+    c.fillStyle = '#38e8ff'; for (let x = from + T; x < to - T; x += 1.6 * T) c.fillRect(x, -1, T * .6, 2); // guide lights
+    c.restore();
   }
   const ITEM = {
     desk(c, x, y, on) {
-      c.fillStyle = 'rgba(0,0,0,.35)'; c.fillRect(x - 2, y + 2, 3.4 * T + 4, 1.6 * T);
-      c.fillStyle = '#4d5462'; c.fillRect(x, y, 3.4 * T, 1.3 * T); c.fillStyle = '#5f6776'; c.fillRect(x, y, 3.4 * T, 4);
-      c.fillStyle = '#353b47'; c.fillRect(x, y + 1.3 * T, 3.4 * T, 5);
+      c.fillStyle = 'rgba(10,20,40,.25)'; c.fillRect(x - 2, y + 3, 3.4 * T + 4, 1.6 * T);
+      c.fillStyle = '#e8eef3'; c.beginPath(); c.roundRect?.(x, y, 3.4 * T, 1.3 * T, 4); c.fill(); c.fillStyle = '#ffffff'; c.fillRect(x + 3, y + 1, 3.4 * T - 6, 3);
+      c.fillStyle = '#aebccb'; c.fillRect(x + 2, y + 1.3 * T, 3.4 * T - 4, 5); c.fillStyle = '#38e8ff'; c.fillRect(x + 4, y + 1.3 * T + 1.5, 3.4 * T - 8, 1.2);
       c.fillStyle = '#0b1022'; c.fillRect(x + 1.1 * T, y - 6, 1.2 * T, 10);
       c.fillStyle = on ? '#4dffa6' : '#1d2b45'; c.fillRect(x + 1.1 * T + 2, y - 4, 1.2 * T - 4, 6);
       c.fillStyle = '#2b2f38'; c.fillRect(x + 0.4 * T, y + 4, 0.5 * T, 3); // keyboard-ish details
     },
     chair(c, x, y) {
-      c.fillStyle = 'rgba(0,0,0,.35)'; c.beginPath(); c.ellipse(x + 8, y + 15, 9, 4, 0, 0, 7); c.fill();
-      c.fillStyle = '#1f2633'; c.fillRect(x + 1, y, 14, 9); c.fillStyle = '#2d3646'; c.fillRect(x, y + 7, 16, 7); c.fillStyle = '#3b465a'; c.fillRect(x + 2, y + 1, 12, 3);
+      c.fillStyle = 'rgba(10,20,40,.25)'; c.beginPath(); c.ellipse(x + 8, y + 15, 9, 4, 0, 0, 7); c.fill();
+      c.fillStyle = '#d7e0e8'; c.beginPath(); c.ellipse(x + 8, y + 4.5, 7, 4.5, 0, 0, 7); c.fill(); c.fillStyle = '#ffffff'; c.beginPath(); c.ellipse(x + 8, y + 10.5, 8, 4.2, 0, 0, 7); c.fill();
+      c.fillStyle = '#38e8ff'; c.fillRect(x + 5, y + 2, 6, 1.2);
     },
     dish(c, x, y) {
       c.fillStyle = 'rgba(0,0,0,.4)'; c.beginPath(); c.ellipse(x + 14, y + 26, 14, 5, 0, 0, 7); c.fill();
@@ -206,8 +169,8 @@
       c.beginPath(); c.moveTo(x + 14, y + 12); c.lineTo(x + 22, y + 3); c.stroke(); c.fillStyle = '#8a93a6'; c.fillRect(x + 12, y + 10, 4, 4);
     },
     console(c, x, y) {
-      c.fillStyle = 'rgba(0,0,0,.35)'; c.fillRect(x - 2, y + 6, 3 * T + 4, T + 6);
-      c.fillStyle = '#3a404c'; c.fillRect(x, y, 3 * T, T + 4); c.fillStyle = '#4c5361'; c.fillRect(x, y, 3 * T, 3);
+      c.fillStyle = 'rgba(10,20,40,.25)'; c.fillRect(x - 2, y + 6, 3 * T + 4, T + 6);
+      c.fillStyle = '#dfe6ec'; c.fillRect(x, y, 3 * T, T + 4); c.fillStyle = '#ffffff'; c.fillRect(x, y, 3 * T, 3);
       c.fillStyle = '#0b1022'; c.fillRect(x + 6, y + 5, 3 * T - 12, 8);
       c.fillStyle = '#2f8f6a'; c.fillRect(x + 8, y + 7, 10, 2); c.fillRect(x + 8, y + 10, 18, 1.5);
       c.fillStyle = '#e5484d'; c.fillRect(x + 3 * T - 8, y + 6, 3, 3); c.fillStyle = '#e9b949'; c.fillRect(x + 4, y + 6, 3, 3);
@@ -234,7 +197,7 @@
       for (const [dx, dy, r] of [[8, 6, 6], [3, 9, 4], [13, 9, 4], [8, 2, 4]]) { c.beginPath(); c.arc(x + dx, y + dy, r, 0, 7); c.fill(); }
       c.fillStyle = '#4fb862'; c.beginPath(); c.arc(x + 7, y + 4, 2.5, 0, 7); c.fill();
     },
-    crate(c, x, y) { c.fillStyle = '#7a5a34'; c.fillRect(x, y, 1.8 * T, 1.8 * T); c.strokeStyle = '#4a361e'; c.lineWidth = 2; c.strokeRect(x + 1, y + 1, 1.8 * T - 2, 1.8 * T - 2); c.beginPath(); c.moveTo(x + 2, y + 2); c.lineTo(x + 1.8 * T - 2, y + 1.8 * T - 2); c.stroke(); },
+    crate(c, x, y) { c.fillStyle = 'rgba(10,20,40,.25)'; c.fillRect(x + 2, y + 3, 1.8 * T, 1.8 * T); c.fillStyle = '#f2f5f8'; c.fillRect(x, y, 1.8 * T, 1.8 * T); c.fillStyle = '#c9d4de'; c.fillRect(x, y + 1.8 * T - 5, 1.8 * T, 5); c.fillStyle = '#38e8ff'; c.fillRect(x + 3, y + 5, 1.8 * T - 6, 2); c.strokeStyle = '#aab8c5'; c.lineWidth = 1; c.strokeRect(x + .5, y + .5, 1.8 * T - 1, 1.8 * T - 1); },
     board(c, x, y) {
       c.fillStyle = '#e9edf3'; c.fillRect(x, y, 3.4 * T, 1.9 * T); c.strokeStyle = '#8a93a6'; c.lineWidth = 2; c.strokeRect(x, y, 3.4 * T, 1.9 * T);
       c.fillStyle = '#3e6bff'; c.fillRect(x + 6, y + 14, 5, 12); c.fillRect(x + 14, y + 9, 5, 17); c.fillRect(x + 22, y + 18, 5, 8);
@@ -253,41 +216,37 @@
       c.fillStyle = '#38e8ff'; c.fillRect(x + 8, y, 4, 4);
     },
     machine(c, x, y) {
-      c.fillStyle = 'rgba(0,0,0,.4)'; c.fillRect(x - 2, y + 4, 4.2 * T + 4, 2.4 * T);
-      c.fillStyle = '#5c6478'; c.fillRect(x, y, 4.2 * T, 2.2 * T); c.fillStyle = '#6e7790'; c.fillRect(x, y, 4.2 * T, 5);
-      c.strokeStyle = '#d9a73e'; c.lineWidth = 2; c.setLineDash([5, 3]); c.strokeRect(x + 1, y + 1, 4.2 * T - 2, 2.2 * T - 2); c.setLineDash([]);
-      c.fillStyle = '#2b3142'; c.fillRect(x + 0.9 * T, y + 7, 2.4 * T, 1.3 * T);
-      for (let i = 0; i < 5; i++) { c.fillStyle = '#8a93a6'; c.fillRect(x + 0.9 * T + 4 + i * 7, y + 10, 4, 1.3 * T - 6); }
+      c.fillStyle = 'rgba(10,20,40,.28)'; c.fillRect(x - 2, y + 5, 4.2 * T + 4, 2.4 * T);
+      c.fillStyle = '#e3eaf0'; c.beginPath(); c.roundRect?.(x, y, 4.2 * T, 2.2 * T, 6); c.fill(); c.fillStyle = '#ffffff'; c.fillRect(x + 4, y + 1.5, 4.2 * T - 8, 4);
+      c.strokeStyle = '#38e8ff'; c.lineWidth = 1.6; c.beginPath(); c.roundRect?.(x + 2, y + 2, 4.2 * T - 4, 2.2 * T - 4, 5); c.stroke();
+      c.fillStyle = '#25384c'; c.beginPath(); c.roundRect?.(x + 0.9 * T, y + 7, 2.4 * T, 1.3 * T, 4); c.fill();
+      for (let i = 0; i < 5; i++) { c.fillStyle = '#5fd6f0'; c.fillRect(x + 0.9 * T + 4 + i * 7, y + 10, 4, 1.3 * T - 6); }
     },
   };
   function drawStatic(w, d) {
-    const pad = 0, W = Math.ceil(w.bounds.w), H = Math.ceil(w.bounds.h), scale = 2;
+    const W = Math.ceil(w.bounds.w), H = Math.ceil(w.bounds.h), scale = 2;
     const cv = document.createElement('canvas'); cv.width = W * scale; cv.height = H * scale;
-    const c = cv.getContext('2d'); c.scale(scale, scale); c.translate(-w.bounds.x + pad, -w.bounds.y + pad);
-    // corridor
-    const k = w.corr;
-    floorFill(c, 'steel', k.x, k.y, k.w, k.h, 2);
-    c.fillStyle = '#4a4f5a'; c.fillRect(k.x, k.y - WALL / 2, k.w, WALL); c.fillRect(k.x, k.y + k.h - WALL / 2, k.w, WALL);
-    c.fillStyle = '#6a707c'; c.fillRect(k.x, k.y - WALL / 2, k.w, 2); c.fillRect(k.x, k.y + k.h + WALL / 2 - 2, k.w, 2);
-    for (let x = k.x + T; x < k.x + k.w; x += 3 * T) { c.fillStyle = '#e9b949'; c.fillRect(x, k.y + 3, 6, 2); }
-    c.fillStyle = 'rgba(77,255,166,.12)'; c.fillRect(k.x, k.y + k.h / 2 - 1, k.w, 2); // guide line
+    const c = cv.getContext('2d'); c.scale(scale, scale); c.translate(-w.bounds.x, -w.bounds.y);
+    // the outer ring truss that holds the pods in orbit
+    c.lineWidth = 3.2 * T; c.strokeStyle = '#151d29'; c.beginPath(); c.arc(0, 0, w.ring, 0, Math.PI * 2); c.stroke();
+    c.lineWidth = 2.2 * T; c.strokeStyle = '#223042'; c.beginPath(); c.arc(0, 0, w.ring, 0, Math.PI * 2); c.stroke();
+    c.lineWidth = 1; c.strokeStyle = '#33465c'; for (let k = -1; k <= 1; k += 2) { c.beginPath(); c.arc(0, 0, w.ring + k * .7 * T, 0, Math.PI * 2); c.stroke(); }
+    for (let i = 0; i < 96; i++) { const a = i * Math.PI / 48; c.fillStyle = i % 4 ? '#2c3d52' : '#38e8ff'; c.fillRect(Math.cos(a) * w.ring - 1.5, Math.sin(a) * w.ring - 1.5, 3, 3); }
+    for (const r of w.rooms) if (!r.hub) drawTube(c, w, r);
     for (const r of w.rooms) {
-      c.save(); roomPath(c, r); c.clip(); floorFill(c, r.floor, r.x, r.y, r.w, r.h, hash(r.id) % 7);
-      // light pools and dark corners
-      const g = c.createRadialGradient(r.x + r.w / 2, r.y + r.h / 2, T, r.x + r.w / 2, r.y + r.h / 2, Math.max(r.w, r.h) * .7);
-      g.addColorStop(0, 'rgba(255,230,180,.06)'); g.addColorStop(1, 'rgba(0,0,0,.45)'); c.fillStyle = g; c.fillRect(r.x, r.y, r.w, r.h);
+      c.save(); roomPath(c, r); c.clip(); hexFloor(c, r.floor, r.cx - r.R, r.cy - r.R, r.R * 2, r.R * 2);
+      const g = c.createRadialGradient(r.cx, r.cy, T, r.cx, r.cy, r.R);
+      g.addColorStop(0, 'rgba(255,255,255,.18)'); g.addColorStop(.7, 'rgba(255,255,255,0)'); g.addColorStop(1, 'rgba(10,20,40,.38)'); c.fillStyle = g; c.fillRect(r.cx - r.R, r.cy - r.R, r.R * 2, r.R * 2);
+      if (r.hub) { // the Command Dome emblem
+        c.strokeStyle = 'rgba(56,232,255,.35)'; c.lineWidth = 2; for (const k of [.32, .4]) { c.beginPath(); c.arc(r.cx, r.cy + 1.2 * T, r.R * k, 0, Math.PI * 2); c.stroke(); }
+        c.fillStyle = 'rgba(233,185,73,.55)'; c.beginPath(); for (let k = 0; k < 10; k++) { const a = -Math.PI / 2 + k * Math.PI / 5, rr = k % 2 ? T * .9 : T * 2; c.lineTo(r.cx + Math.cos(a) * rr, r.cy + 1.2 * T + Math.sin(a) * rr); } c.closePath(); c.fill();
+      }
       c.restore();
-      if (r.deco !== 'storage') wallFace(c, r);
       for (const it of r.items) ITEM[it.t]?.(c, it.x, it.y);
       for (const dk of r.desks) { ITEM.chair(c, dk.x + 1.2 * T, dk.y + 1.7 * T); }
       if (r.machine) { ITEM.machine(c, r.machine.x, r.machine.y); }
-      if (r.belt) { c.fillStyle = '#1a1c22'; c.fillRect(r.belt.x - 2, r.belt.y - 2, r.belt.w + 4, T * 0.9 + 4); c.fillStyle = '#353a45'; c.fillRect(r.belt.x, r.belt.y, r.belt.w, T * 0.9); }
-      drawWalls(c, r); cutDoor(c, r, k);
-    }
-    // corridor walls get cut where doors meet it
-    for (const r of w.rooms) if (!r.deco || r.deco === 'lounge') {
-      const y = r.top ? k.y - WALL / 2 : k.y + k.h - WALL / 2;
-      floorFill(c, 'steel', r.door.x, y, r.door.w, WALL, 4);
+      if (r.belt) { c.fillStyle = '#5b6b7a'; c.fillRect(r.belt.x - 2, r.belt.y - 2, r.belt.w + 4, T * 0.9 + 4); c.fillStyle = '#8796a4'; c.fillRect(r.belt.x, r.belt.y, r.belt.w, T * 0.9); }
+      drawRim(c, r, r.hub ? w.rooms.filter((x) => !x.hub).map((x) => x.ang) : [r.ang + Math.PI]);
     }
     return { cv, scale };
   }
@@ -298,14 +257,15 @@
     if (r.deco === 'storage') return { x: r.x + rnd(2 * T, r.w - 2 * T), y: r.y + rnd(2 * T, r.h - 2 * T) };
     return { x: r.x + rnd(2.5 * T, r.w - 2.5 * T), y: r.y + rnd(3.2 * T, r.h - 2.5 * T) };
   }
-  function doorIn(r) { return r.deco === 'storage' ? { x: r.side === 'left' ? r.x + r.w - 2 * T : r.x + 2 * T, y: world.corr.y + world.corr.h / 2 } : { x: r.door.x + r.door.w / 2, y: r.top ? r.y + r.h - 1.5 * T : r.y + 1.5 * T }; }
-  function doorOut(r) { return r.deco === 'storage' ? { x: r.side === 'left' ? r.x + r.w + T : r.x - T, y: world.corr.y + world.corr.h / 2 } : { x: r.door.x + r.door.w / 2, y: world.corr.y + world.corr.h / 2 + (r.top ? -6 : 6) }; }
+  const unit = (r) => (r.hub ? { x: 0, y: 1 } : { x: -Math.cos(r.ang), y: -Math.sin(r.ang) }); // from a pod toward the hub
+  function doorIn(r) { const u = unit(r); return { x: r.cx + u.x * (r.R - 2 * T), y: r.cy + u.y * (r.R - 2 * T) }; }
+  function doorOut(r) { const u = unit(r); return { x: r.cx + u.x * (r.R + 1.5 * T), y: r.cy + u.y * (r.R + 1.5 * T) }; }
+  function hubEdge(r) { const h = world.hub; return { x: h.cx + Math.cos(r.ang) * (h.R - 2 * T), y: h.cy + Math.sin(r.ang) * (h.R - 2 * T) }; }
   function route(from, toRoom, toPt) {
-    const pts = [];
-    if (from.room !== toRoom.id) {
-      const fr = roomById(from.room);
-      if (fr) { pts.push(doorIn(fr), doorOut(fr)); }
-      pts.push(doorOut(toRoom), doorIn(toRoom));
+    const pts = [], fr = roomById(from.room);
+    if (!fr || fr.id !== toRoom.id) {
+      if (fr && !fr.hub) pts.push(doorIn(fr), doorOut(fr), hubEdge(fr));
+      if (!toRoom.hub) pts.push(hubEdge(toRoom), doorOut(toRoom), doorIn(toRoom));
     }
     pts.push(toPt);
     return pts;
@@ -363,7 +323,7 @@
     const t = b.path[0], dx = t.x - b.x, dy = t.y - b.y, dist = Math.hypot(dx, dy), sp = (b.npc ? 18 : b.commander ? 27 : 25) * dt;
     if (Math.abs(dx) > .5) b.dir = dx > 0 ? 1 : -1;
     b.face = Math.abs(dx) > Math.abs(dy) * .8 ? 'side' : dy > 0 ? 'down' : 'up';
-    if (dist <= sp) { b.x = t.x; b.y = t.y; b.path.shift(); if (!b.path.length) b.arrived = true; const r = world.rooms.find((r) => b.x > r.x && b.x < r.x + r.w && b.y > r.y && b.y < r.y + r.h); if (r) b.room = r.id; }
+    if (dist <= sp) { b.x = t.x; b.y = t.y; b.path.shift(); if (!b.path.length) b.arrived = true; const r = world.rooms.find((rm) => inRoom(rm, b.x, b.y)); if (r) b.room = r.id; }
     else { b.x += dx / dist * sp; b.y += dy / dist * sp; }
     b.phase = (b.phase || 0) + sp / 4.2; // steps follow the distance walked, so feet don't slide
     b.moving = dist > sp;
@@ -388,7 +348,7 @@
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     // space background with slow parallax
     ctx.fillStyle = '#03040a'; ctx.fillRect(0, 0, W, H);
-    drawStars(ctx, W, H, t);
+    drawStars(ctx, W, H, t); drawPlanet(ctx, W, H);
     ctx.save(); ctx.translate(W / 2, H / 2); ctx.scale(cam.z, cam.z); ctx.translate(-cam.x, -cam.y);
     const b = world.bounds;
     ctx.imageSmoothingEnabled = true;
@@ -439,8 +399,10 @@
     for (const wf of d.workflows || []) if (wf.status === 'running') {
       const rs = [...new Set(wf.steps.map((s) => d.agents.find((a) => a.id === s.agent)?.station))].map(roomById).filter(Boolean);
       if (rs.length < 2) continue;
-      const a = doorOut(rs[0]), z = doorOut(rs[rs.length - 1]), p = (t * .18 + hash(wf.id) % 10 / 10) % 1;
-      const x = a.x + (z.x - a.x) * p, y = world.corr.y + world.corr.h / 2 - 3;
+      const pts = [doorOut(rs[0]), hubEdge(rs[0]), hubEdge(rs[rs.length - 1]), doorOut(rs[rs.length - 1])];
+      const segs = pts.slice(1).map((q, i) => Math.hypot(q.x - pts[i].x, q.y - pts[i].y)), total = segs.reduce((m, v) => m + v, 0) || 1;
+      let left = ((t * .18 + hash(wf.id) % 10 / 10) % 1) * total, si = 0; while (si < segs.length - 1 && left > segs[si]) left -= segs[si++];
+      const f = segs[si] ? left / segs[si] : 0, x = pts[si].x + (pts[si + 1].x - pts[si].x) * f, y = pts[si].y + (pts[si + 1].y - pts[si].y) * f - 3;
       ctx.fillStyle = 'rgba(0,0,0,.4)'; ctx.fillRect(x - 6, y + 7, 14, 3); ctx.fillStyle = '#b8895a'; ctx.fillRect(x - 6, y - 4, 12, 10); ctx.strokeStyle = '#6b4a32'; ctx.strokeRect(x - 5.5, y - 3.5, 11, 9);
     }
     // walkers, painted back-to-front
@@ -598,6 +560,13 @@
   }
   const NPC_LOOK = { bg: '#000000', fg: '#c7cfdc', shape: 'round', eyes: 'visor', mouth: 'none', top: 'antenna', body: 'none', accent: '#38e8ff' };
   let stars = null;
+  function drawPlanet(c, W, H) { // a planet's curved horizon below the station
+    const R = Math.max(W, H) * 1.6, cx = W * .5 - cam.x * .02, cy = H + R * .78 - cam.y * .02;
+    const g = c.createRadialGradient(cx - R * .2, cy - R * .9, R * .1, cx, cy, R);
+    g.addColorStop(0, '#2f6fb0'); g.addColorStop(.55, '#123a66'); g.addColorStop(1, '#050d1c');
+    c.fillStyle = g; c.beginPath(); c.arc(cx, cy, R, 0, Math.PI * 2); c.fill();
+    c.strokeStyle = 'rgba(120,200,255,.35)'; c.lineWidth = 6; c.beginPath(); c.arc(cx, cy, R + 2, Math.PI * 1.15, Math.PI * 1.85); c.stroke();
+  }
   function drawStars(c, W, H, t) {
     if (!stars) stars = Array.from({ length: 220 }, () => ({ x: Math.random(), y: Math.random(), s: Math.random() * 1.4 + .3, p: Math.random() * 6 }));
     const g1 = c.createRadialGradient(W * .2, H * .85, 0, W * .2, H * .85, Math.max(W, H) * .55); g1.addColorStop(0, 'rgba(120,40,160,.35)'); g1.addColorStop(1, 'rgba(0,0,0,0)');
@@ -616,11 +585,9 @@
     const W = canvas.clientWidth || 360, H = canvas.clientHeight || 400, b = world.bounds;
     // phones: fill the height and let people pan sideways; big screens: show (almost) everything
     const zh = H / (b.h * .92), zw = W / (b.w * .98);
-    cam.z = W >= 900 ? Math.min(zh, Math.max(zw, zh * .7)) : Math.min(zh, W / (30 * T)); // phones: about one and a half rooms across
+    cam.z = W >= 900 ? Math.min(H / b.h, W / b.w) * .94 : Math.min(1, W / (34 * T)); // phones: the dome and its neighbours; big screens: the whole ring
     cam.z = Math.max(.35, Math.min(2.5, cam.z));
-    const lounge = roomById('__lounge');
-    cam.x = W >= 900 ? b.x + b.w / 2 : (lounge ? lounge.x + lounge.w : b.x + b.w / 2);
-    cam.y = b.y + b.h / 2; cam.fitted = true; clampCam();
+    cam.x = 0; cam.y = W >= 900 ? 0 : -4 * T; cam.fitted = true; clampCam();
   }
   function clampCam() {
     const b = world.bounds, W = canvas.clientWidth / cam.z, H = canvas.clientHeight / cam.z;
@@ -649,7 +616,7 @@
         const h = hits.slice().reverse().find((h) => Math.hypot(h.x - p.x, h.y - p.y) < h.r + 4);
         if (h?.commander) handlers.onCommander?.();
         else if (h) handlers.onAgent?.(h.id);
-        else { const ob = world.rooms.find((r) => r.outbox && p.x > r.x && p.x < r.x + r.w && p.y > r.y && p.y < r.y + r.h); if (ob) handlers.onOutbox?.(); }
+        else { const ob = world.rooms.find((r) => r.outbox && inRoom(r, p.x, p.y)); if (ob) handlers.onOutbox?.(); }
       }
       pts.delete(e.pointerId); if (pts.size < 2) pinch = 0;
     };

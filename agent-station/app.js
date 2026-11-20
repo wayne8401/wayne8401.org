@@ -445,22 +445,46 @@
       <circle cx="60" cy="36" r="9" fill="#e8ecf6"/><circle cx="60" cy="36" r="4" fill="${hue}" class="${busy ? 'blink' : ''}"/>
       <line x1="60" y1="27" x2="60" y2="18" stroke="#c7cfdc" stroke-width="1.4"/><circle cx="60" cy="17" r="2" fill="${busy ? '#4dffa6' : '#ff5c7a'}" class="blink"/></svg>`;
   }
+  /* Station interior (top-down deck view). Original art: metal floor, walls, desks, machines and belts. */
+  const PROP = {
+    dish: `<svg viewBox="0 0 30 30"><circle cx="15" cy="17" r="10" fill="#d9dde6"/><circle cx="15" cy="17" r="10" fill="none" stroke="#8a93a6" stroke-width="1.4"/><circle cx="15" cy="17" r="3" fill="#8a93a6"/><path d="M15 17 L22 8" stroke="#8a93a6" stroke-width="1.6"/><rect x="11" y="26" width="8" height="3" fill="#4a5163"/></svg>`,
+    ring: `<svg viewBox="0 0 30 30"><circle cx="15" cy="13" r="9" fill="none" stroke="#fff6e8" stroke-width="3"/><rect x="12.5" y="9" width="5" height="8" rx="1" fill="#0b1022"/><path d="M15 22 V29 M15 25 L10 29 M15 25 L20 29" stroke="#8a93a6" stroke-width="1.4"/></svg>`,
+    board: `<svg viewBox="0 0 30 30"><rect x="2" y="4" width="26" height="18" rx="1" fill="#e9edf3" stroke="#8a93a6"/><rect x="5" y="12" width="3" height="7" fill="#3e6bff"/><rect x="10" y="9" width="3" height="10" fill="#3e6bff"/><path d="M16 17 L20 11 L24 14" stroke="#e5484d" stroke-width="1.4" fill="none"/><rect x="13" y="22" width="4" height="6" fill="#4a5163"/></svg>`,
+    plant: `<svg viewBox="0 0 20 20"><rect x="6" y="12" width="8" height="7" rx="1" fill="#6b4a32"/><path d="M10 13 C 4 10 4 4 9 2 C 9 6 10 9 10 13 C 10 9 12 5 16 4 C 16 9 13 11 10 13" fill="#3fbf6a"/></svg>`,
+    shelf: `<svg viewBox="0 0 30 16"><rect x="1" y="1" width="28" height="14" rx="1" fill="#5a3e2b"/>${[3, 7, 10, 14, 18, 21, 25].map((x, i) => `<rect x="${x}" y="3" width="3" height="10" fill="${['#e5484d', '#3e6bff', '#e9b949', '#4dffa6', '#b9a3ff', '#ff9a4d', '#38e8ff'][i]}"/>`).join('')}</svg>`,
+    crate: `<svg viewBox="0 0 20 20"><rect x="2" y="2" width="16" height="16" rx="1" fill="#8a6a3e"/><path d="M2 2 L18 18 M18 2 L2 18" stroke="#5a4426" stroke-width="1.4"/><rect x="2" y="2" width="16" height="16" rx="1" fill="none" stroke="#5a4426" stroke-width="1.4"/></svg>`,
+  };
+  const PROP_BY_KIND = { library: ['dish', 'shelf'], writer: ['shelf', 'plant'], planning: ['board', 'crate'], studio: ['ring', 'plant'], office: ['plant', 'crate'] };
+  const deskSvg = (on) => `<svg viewBox="0 0 40 34"><circle cx="20" cy="29" r="5" fill="#2b3550"/><rect x="2" y="4" width="36" height="18" rx="2" fill="#6b7690"/><rect x="2" y="4" width="36" height="3" fill="#8a93a6"/><rect x="11" y="7" width="18" height="10" rx="1" fill="#0b1022"/><rect x="13" y="9" width="14" height="6" fill="${on ? '#4dffa6' : '#1d2b45'}" ${on ? 'class="blink"' : ''}/></svg>`;
+  const machineSvg = (on) => `<svg viewBox="0 0 64 36"><rect x="2" y="6" width="60" height="26" rx="3" fill="#5c6478"/><rect x="2" y="6" width="60" height="26" rx="3" fill="none" stroke="#e9b949" stroke-width="1.6" stroke-dasharray="4 3"/><rect x="14" y="10" width="36" height="16" rx="2" fill="#2b3142"/>${[0, 1, 2, 3, 4].map((i) => `<rect x="${17 + i * 7}" y="13" width="4" height="10" fill="#8a93a6"/>`).join('')}<circle cx="56" cy="11" r="2" fill="${on ? '#4dffa6' : '#e5484d'}" class="blink"/></svg>`;
+  function roomHtml(st, p, now) {
+    const team = S.agents.filter((a) => a.status !== undefined && a.station === st.id), workers = team.filter((a) => a.status === 'running'), busy = workers.length > 0;
+    const born = (spaceSeen[st.id] ??= spaceReady ? now : 0), building = now - born < 6000; // only stations launched while the app is open
+    const crew = new Set(team.map((a) => a.id)), mine = S.tasks.filter((t) => crew.has(t.agent));
+    const shipped = mine.filter((t) => t.status === 'done').length, failed = mine.filter((t) => t.status === 'error').length, pending = mine.filter((t) => t.status === 'queued' || t.status === 'waiting').length;
+    const g = stationGrowth(st.id), kind = sceneKind({ id: '', role: `${st.name} ${st.region || ''}` }), props = PROP_BY_KIND[kind] || PROP_BY_KIND.office;
+    const desks = team.slice(0, 4).map((a, i) => {
+      const on = a.status === 'running';
+      return `<span class="rdesk" style="--i:${i}">${deskSvg(on)}<span class="rplate">${esc(a.name)}<br>${esc((a.role || '').split(/[ &]/)[0])}</span>
+        <span class="rbot ${on ? 'atdesk' : 'walk'}" style="--d:${(i * 1.7 + st.id.length) % 6}s;--w:${8 + (i * 13) % 14}px">${avatar(a, 'xs', { bare: true, full: true })}</span></span>`;
+    }).join('');
+    const extra = Math.max(0, Math.min(3, g.level - 1)); // more machines as the station grows
+    return `<div class="ftile room ${busy ? 'busy' : ''} ${building ? 'building' : ''}" data-room="${esc(st.id)}" style="grid-column:${p.c + 1};grid-row:${p.r + 1}">
+      <span class="rtitle">${esc(st.name.toUpperCase())}${st.region ? ` · ${esc(String(st.region).toUpperCase())}` : ''}</span>
+      <span class="rprops">${props.map((k) => `<span class="rprop ${k}">${PROP[k]}</span>`).join('')}</span>
+      <span class="rline"><span class="rmach">${machineSvg(busy)}</span><span class="rbelt ${busy ? 'on' : ''}">${busy ? '<i class="box"></i><i class="box b2"></i>' : ''}</span>${Array.from({ length: extra }, () => `<span class="rmach small">${machineSvg(busy)}</span>`).join('')}</span>
+      <span class="rdesks">${desks}${team.length > 4 ? `<span class="rmore">+${team.length - 4}</span>` : ''}</span>
+      <span class="rstats">${mine.length} RUNS · ${shipped} SHIPPED · ${failed} FAILED</span>
+      ${pending ? `<span class="rpend">${pending} pending</span>` : ''}
+      ${building ? '<span class="rbuild">🏗️ UNDER CONSTRUCTION</span>' : ''}
+      ${st.custom ? `<button class="fx" data-act="room-del" data-id="${esc(st.id)}" aria-label="Remove station">✕</button>` : ''}</div>`;
+  }
   function floorHtml() {
     FLOOR_COLS = typeof innerWidth === 'number' && innerWidth >= 1000 ? 3 : 2;
     const sts = S.stations; if (!sts.length) return empty('No rooms yet.');
     const pos = floorPos(sts), rows = Math.max(...Object.values(pos).map((p) => p.r)) + 2;
     const now = Date.now();
-    const tiles = sts.map((st) => {
-      const p = pos[st.id], team = S.agents.filter((a) => a.status !== undefined && a.station === st.id), workers = team.filter((a) => a.status === 'running'), busy = workers.length > 0;
-      const g = stationGrowth(st.id), born = (spaceSeen[st.id] ??= spaceReady ? now : 0), building = now - born < 6000; // only stations launched while the app is open
-      const eva = workers.slice(0, 2).map((a, i) => `<span class="eva eva${i}">${avatar(a, 'xs', { bare: true, full: true })}<i class="spark"></i></span>`).join('');
-      return `<div class="ftile stile ${busy ? 'busy' : ''} ${building ? 'building' : ''}" data-room="${esc(st.id)}" style="grid-column:${p.c + 1};grid-row:${p.r + 1}">
-        <span class="sart" aria-hidden="true">${stationSvg(st.id, building ? 0 : g.level, busy)}</span>${eva}
-        <b>${esc(st.name)}</b>
-        <span class="slvl">${building ? '🏗️ Under construction' : `Lv ${g.level}${g.level < 5 ? ` · ${g.left} task${g.left > 1 ? 's' : ''} to next module` : ' · fully built'}`}</span>
-        <span class="fav">${team.slice(0, 4).map((a) => avatar(a, 'xs')).join('')}</span>
-        ${st.custom ? `<button class="fx" data-act="room-del" data-id="${esc(st.id)}" aria-label="Remove station">✕</button>` : ''}</div>`;
-    }).join('');
+    const tiles = sts.map((st) => roomHtml(st, pos[st.id], now)).join('');
     spaceReady = true;
     // conveyor belts: link rooms of consecutive steps in each production line
     const links = [];
@@ -468,8 +492,8 @@
     const cw = 100 / FLOOR_COLS, ch = 100 / rows, cx = (p) => (p.c + .5) * cw, cy = (p) => (p.r + .5) * ch;
     const svg = `<svg class="fbelts" viewBox="0 0 100 100" preserveAspectRatio="none">${links.map(([a, b, on]) => `<line x1="${cx(pos[a])}" y1="${cy(pos[a])}" x2="${cx(pos[b])}" y2="${cy(pos[b])}" class="belt ${on ? 'on' : ''}"/>`).join('')}</svg>`;
     const ships = links.filter((l) => l[2]).map(([a, b], i) => `<span class="shuttle" style="--x1:${cx(pos[a])}%;--y1:${cy(pos[a])}%;--x2:${cx(pos[b])}%;--y2:${cy(pos[b])}%;animation-delay:${i * .7}s">🛸</span>`).join('');
-    return `<div class="fgrid" id="fgrid" style="grid-template-columns:repeat(${FLOOR_COLS},1fr);grid-template-rows:repeat(${rows},${FLOOR_COLS === 3 ? 180 : 150}px)"><span class="planet" aria-hidden="true"></span>${svg}${ships}${tiles}</div>
-      <p class="muted tiny" style="margin:8px 0 0">Stations grow a new module every 3 tasks their crew finishes. Busy robots go outside to build. Shuttles fly work along routes while a line runs. Press and drag a station to move it.</p>`;
+    return `<div class="fgrid deck" id="fgrid" style="grid-template-columns:repeat(${FLOOR_COLS},1fr);grid-template-rows:repeat(${rows - 1},${FLOOR_COLS === 3 ? 270 : 220}px) ${sts.length % FLOOR_COLS ? '' : '70px'}">${svg}${ships}${tiles}</div>
+      <p class="muted tiny" style="margin:8px 0 0">Each room is a station. Idle robots walk the deck; working robots sit at their desks while the room's machine and belts run. Rooms add equipment every 3 tasks their crew finishes. Belts between rooms are your production lines. Press and drag a room to move it.</p>`;
   }
   const PLATFORM_URL = { tiktok: 'https://www.tiktok.com/upload', instagram: 'https://www.instagram.com/', facebook: 'https://www.facebook.com/', etsy: 'https://www.etsy.com/your/shops/me/dashboard', shopify: 'https://admin.shopify.com/' };
   function approvalsSheet() {
@@ -499,7 +523,7 @@
       <div class="card line" id="prodLine" data-region="line"></div>
       <div class="h2row"><h2>✅ Approvals</h2><span class="muted tiny">nothing posts without you</span></div>
       <div class="card" data-region="approvals"></div>
-      <div class="h2row"><h2>🌌 Space sector</h2><span><button class="link" data-act="room-add">🚀 Launch station</button> · <button class="link" data-act="line-build">🛸 Route</button></span></div>
+      <div class="h2row"><h2>🛰️ Space station</h2><span><button class="link" data-act="room-add">🚀 Launch station</button> · <button class="link" data-act="line-build">🛸 Route</button></span></div>
       <div class="card ffloor space" data-region="ffloor"></div>
       <div class="h2row"><h2>🖥️ Workstations</h2><span><button class="link" data-act="forge">🛠️ Build</button> · <button class="link" data-act="new-agent">✨ Gallery</button></span></div>
       <div class="floor" id="floor" data-region="floor"></div>

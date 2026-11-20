@@ -655,3 +655,46 @@ details.history[open] > summary h2::after { transform: rotate(90deg); }
   .sheet-panel { max-width: 640px; margin-left: auto; margin-right: auto; }
 }
 @media (min-width: 1000px) { .sart { height: 100px; } }
+
+/* Station interior deck view (top-down) */
+.space .deck { gap: 0; }
+.room { position: relative; margin: 2px; padding: 26px 10px 30px !important; border-radius: 6px !important; justify-content: flex-start !important; gap: 6px;
+  background: repeating-linear-gradient(0deg, transparent 0 23px, rgba(0,0,0,.35) 23px 24px), repeating-linear-gradient(90deg, transparent 0 23px, rgba(0,0,0,.35) 23px 24px), linear-gradient(180deg, #2c2f37, #23262d) !important;
+  border: 6px solid #4a4f5c !important; box-shadow: inset 0 0 0 2px #1a1c22, 0 6px 16px rgba(0,0,0,.55) !important; font-family: ui-monospace, Menlo, Consolas, monospace; overflow: hidden; }
+.room::before, .room::after { content: ''; position: absolute; top: 40%; width: 6px; height: 34px; background: repeating-linear-gradient(45deg, #e9b949 0 4px, #1a1c22 4px 8px); }
+.room::before { left: -6px; } .room::after { right: -6px; }
+.room.busy { border-color: #50705c !important; }
+.rtitle { position: absolute; top: 4px; left: 8px; right: 22px; font-size: 9.5px; letter-spacing: .08em; color: #8affc1; text-shadow: 0 0 6px rgba(77,255,166,.6); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rprops { display: flex; justify-content: space-between; align-items: flex-end; height: 30px; }
+.rprop svg { height: 28px; width: auto; display: block; }
+.rprop.shelf svg { height: 16px; } .rprop.plant svg, .rprop.crate svg { height: 20px; }
+.rline { display: flex; align-items: center; gap: 0; }
+.rmach svg { width: 54px; height: 30px; display: block; } .rmach.small svg { width: 34px; height: 20px; margin-left: 4px; }
+.rbelt { position: relative; flex: 1; height: 12px; background: repeating-linear-gradient(90deg, #3a3f4c 0 6px, #2a2e38 6px 12px); border-top: 2px solid #1a1c22; border-bottom: 2px solid #1a1c22; overflow: hidden; }
+.rbelt.on { animation: rbelt .6s linear infinite; }
+@keyframes rbelt { to { background-position: 12px 0; } }
+.rbelt .box { position: absolute; top: 1px; left: -10px; width: 8px; height: 8px; background: #c99a6b; border: 1px solid #6b4a32; animation: rbox 2.4s linear infinite; }
+.rbelt .box.b2 { animation-delay: -1.2s; }
+@keyframes rbox { to { left: 110%; } }
+.rdesks { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px 8px; margin-top: 2px; }
+.rdesk { position: relative; display: grid; justify-items: center; }
+.rdesk > svg { width: 46px; height: 38px; }
+.rplate { order: -1; margin-bottom: 1px; font-size: 8px; line-height: 1.15; text-align: center; color: #cfe3ff; background: #0e1626; border: 1px solid #3a4a6a; padding: 1px 4px; margin-top: -2px; max-width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; text-transform: uppercase; }
+.rbot { position: absolute; z-index: 2; pointer-events: none; }
+.rbot .avatar { width: 22px; height: 22px; }
+.rbot.atdesk { bottom: -12px; left: 50%; transform: translateX(-50%); }
+.rbot.walk { top: -6px; left: -6px; animation: rwalk 6s ease-in-out infinite; animation-delay: calc(var(--d) * -1); }
+@keyframes rwalk { 0% { transform: translate(0, 0); } 25% { transform: translate(calc(var(--w) * 3), -4px) scaleX(1); } 50% { transform: translate(calc(var(--w) * 4), 6px) scaleX(-1); } 75% { transform: translate(var(--w), 2px) scaleX(-1); } 100% { transform: translate(0, 0); } }
+.rmore { align-self: center; font-size: 11px; color: var(--muted); }
+.rstats { position: absolute; left: 4px; right: 4px; bottom: 6px; font-size: 6.8px; letter-spacing: 0; padding: 2px 3px !important; overflow: hidden; text-overflow: ellipsis; color: #8affc1; background: rgba(8,20,16,.85); border: 1px solid #2e5a46; padding: 2px 6px; white-space: nowrap; }
+.rpend { position: absolute; right: 8px; bottom: 22px; font-size: 9px; color: #e9b949; }
+.rbuild { position: absolute; inset: 22px 6px 26px; display: grid; place-items: center; font-size: 10px; color: #1a1c22; font-weight: 800; background: repeating-linear-gradient(45deg, rgba(233,185,73,.85) 0 10px, rgba(26,28,34,.85) 10px 20px); text-shadow: 0 0 2px #e9b949; }
+.room .fx { top: 2px; right: 4px; color: #cfe3ff; }
+@media (prefers-reduced-motion: reduce) { .rbot.walk, .rbelt.on, .rbelt .box { animation: none !important; } }
+@media (min-width: 1000px) {
+  .room { padding: 30px 14px 34px !important; }
+  .rtitle { font-size: 11px; } .rstats { font-size: 9.5px; } .rplate { font-size: 9.5px; }
+  .rprops { height: 40px; } .rprop svg { height: 38px; } .rprop.shelf svg { height: 22px; } .rprop.plant svg, .rprop.crate svg { height: 26px; }
+  .rmach svg { width: 76px; height: 42px; } .rbelt { height: 16px; } .rbelt .box { width: 11px; height: 11px; top: 1px; }
+  .rdesks { grid-template-columns: repeat(2, 1fr); gap: 14px; margin-top: 10px; } .rdesk > svg { width: 70px; height: 58px; } .rbot .avatar { width: 32px; height: 32px; }
+}

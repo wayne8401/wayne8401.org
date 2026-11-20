@@ -524,7 +524,9 @@
       <div class="h2row"><h2>✅ Approvals</h2><span class="muted tiny">nothing posts without you</span></div>
       <div class="card" data-region="approvals"></div>
       <div class="h2row"><h2>🛰️ Space station</h2><span><button class="link" data-act="room-add">🚀 Launch station</button> · <button class="link" data-act="line-build">🛸 Route</button></span></div>
-      <div class="card ffloor space" data-region="ffloor"></div>
+      <div class="card svcard"><div class="svhost" id="svhost"></div>
+        <div class="svbar"><span class="muted tiny">Drag to look around · pinch or scroll to zoom · tap a robot</span><span><button class="link" data-act="sv-fit">⤢ Fit</button> · <button class="link" data-act="sv-full">⛶ Full screen</button></span></div></div>
+      <details class="card roomedit"><summary><b>🧱 Edit rooms</b> <span class="muted tiny">move, remove, see crews</span></summary><div class="ffloor space" data-region="ffloor"></div></details>
       <div class="h2row"><h2>🖥️ Workstations</h2><span><button class="link" data-act="forge">🛠️ Build</button> · <button class="link" data-act="new-agent">✨ Gallery</button></span></div>
       <div class="floor" id="floor" data-region="floor"></div>
       <details class="card mapcard"><summary><b>🛰️ Network map</b> <span class="muted tiny">how stations connect</span></summary><div data-region="map"></div></details>
@@ -1080,7 +1082,16 @@
     $$('.tabs button').forEach((b) => b.classList.toggle('active', b.dataset.tab === ui.tab));
     update();
   }
+  function stationView() {
+    const host = $('#svhost'), V = window.AgentStationView; if (!host || !V) return;
+    V.mount(host, {
+      onAgent: (id) => ACTIONS.agent(id),
+      sprite: (a) => { const look = a.id === 'npc' ? a.look : lookOf(a); return look ? CH.avatarSvg(look, '', { full: true, bare: true }) : null; },
+    });
+    V.setData({ stations: S.stations || [], agents: S.agents || [], tasks: S.tasks || [], workflows: S.workflows || [] });
+  }
   function update() {
+    try { stationView(); } catch (e) { console.warn('station view', e); }
     for (const el of $$('#view [data-region]')) {
       if (el.contains(document.activeElement) && /^(SELECT|INPUT|TEXTAREA)$/.test(document.activeElement.tagName)) continue; // don't yank a control the user is using
       if (ui.dragging && el.dataset.region === 'ffloor') continue;
@@ -1788,6 +1799,8 @@
     'line-save': () => { const l = ui.lineAgents || []; const n = $('#lineName'); const name = (n && n.value.trim()) || l.map(agentName).join(' ➜ '); closeSheet(); act(() => call('POST', 'workflows', { name, description: 'Production line', steps: l.map((id, i) => ({ name: agentName(id), agent: id, instructions: i === 0 ? 'Do your part of the job described in the input.' : 'Take the previous step\'s result and do your part. Improve and build on it.' })) }), 'Line built. Run it from the Flows tab.'); },
     'go-tasks': () => go('tasks'),
     agent: (id) => openSheet('agent', id),
+    'sv-fit': () => window.AgentStationView?.fit(),
+    'sv-full': () => { const c = $('.svcard'); if (!c) return; const on = c.classList.toggle('svfull'); document.body.classList.toggle('noscroll', on); const b = c.querySelector('[data-act=sv-full]'); if (b) b.textContent = on ? '✕ Close' : '⛶ Full screen'; setTimeout(() => window.AgentStationView?.fit(), 50); },
     task: (id) => openSheet('task', id),
     'archive-done': () => act(() => call('POST', 'tasks/archive', {}), 'Finished tasks moved to 📚 Task history'),
     'task-archive': (id) => { closeSheet(); act(() => call('POST', `tasks/${encodeURIComponent(id)}/archive`, {}), 'Moved to 📚 Task history'); },

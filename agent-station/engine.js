@@ -75,7 +75,7 @@
       state.approvals ||= [];
       if (!state.settings.equipAdded) { for (const st of state.stations) if (!Array.isArray(st.equipment) && DEFAULT_EQUIP[st.id]) st.equipment = [...DEFAULT_EQUIP[st.id]]; state.settings.equipAdded = true; } // rooms got equipment in a later version
       if (!state.settings.echoAdded) { if (!state.agents.some((x) => x.id === 'echo')) state.agents.push(ECHO()); state.settings.echoAdded = true; } // Echo joined in a later version
-      for (const t of state.tasks) if ((t.status === 'running' || t.status === 'queued') && t.agent !== 'muse') { t.status = 'error'; t.result = 'The app was closed before this task finished. Keep the app open while agents work.'; }
+      for (const t of state.tasks) if ((t.status === 'running' || t.status === 'queued') && t.agent !== 'muse' && (!t.device || t.device === DEVICE)) { t.status = 'error'; t.result = 'The app was closed before this task finished. Keep the app open while agents work.'; }
       for (const r of state.runs) if (r.status === 'running') { r.status = 'error'; r.steps.forEach((st) => { if (st.status === 'running') st.status = 'error'; }); }
     } catch { /* storage unavailable: run in memory */ }
   })();
@@ -712,6 +712,57 @@ You are running on a chat-only brain: you can't use tools, browse, save files or
     if (has && has.look?.shape === 'tall' && has.look?.eyes === 'dot') { has.look = { ...MUSE_LOOK }; save(); } // older Muse look → robot
     if (on && !has) { state.agents.push({ id: 'muse', name: 'Muse', role: 'Your Muse agent', station: 'ops', external: true, look: MUSE_LOOK, instructions: 'External agent: tasks are sent to Muse through the Muse Bridge.' }); event('success', 'muse', 'Muse joined your station 🤝'); save(); }
   }
+  /* ------------------------------------------------------------ phone <-> PC link (private, through your own bridge) */
+  const DEVICE = (() => { try { let d = localStorage.getItem('as.device'); if (!d) { d = 'dev_' + Math.random().toString(36).slice(2, 10); localStorage.setItem('as.device', d); } return d; } catch { return 'dev_mem'; } })();
+  const DEVICE_NAME = /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent || '') ? 'phone' : 'PC';
+  const SHARED = ['stations', 'agents', 'workflows', 'tasks', 'skills', 'memories', 'files', 'approvals'];
+  const linkInfo = { at: 0, error: '' };
+  const stamp = (x) => Math.max(+x?.updatedAt || 0, +x?.finishedAt || 0, +x?.createdAt || 0);
+  const settled = (x) => (x?.status === 'done' || x?.status === 'error' ? 1 : 0);
+  function mergeList(a = [], b = []) {
+    const out = new Map(); for (const x of a) if (x && x.id != null) out.set(x.id, x);
+    for (const y of b) { if (!y || y.id == null) continue; const x = out.get(y.id); if (!x || settled(y) > settled(x) || (settled(y) === settled(x) && stamp(y) > stamp(x))) out.set(y.id, y); }
+    return [...out.values()].sort((p, q) => stamp(q) - stamp(p));
+  }
+  function mergeShared(local, remote) {
+    const m = {};
+    for (const k of SHARED) {
+      if (k === 'files') { m.files = { ...(remote.files || {}) }; for (const [n, f] of Object.entries(local.files || {})) if (!m.files[n] || (f.updatedAt || 0) > (m.files[n].updatedAt || 0)) m.files[n] = f; }
+      else m[k] = mergeList(local[k], remote[k]);
+    }
+    return m;
+  }
+  const sharedOf = () => Object.fromEntries(SHARED.map((k) => [k, state[k]]));
+  const hashOf = (o) => { const j = JSON.stringify(o); let h = 0; for (let i = 0; i < j.length; i++) h = (h * 31 + j.charCodeAt(i)) | 0; return h + ':' + j.length; };
+  let linking = false;
+  async function linkSync() {
+    const cfg = bridgeCfg(); if (!cfg.enabled || !cfg.link || !cfg.token || linking) return;
+    const url = (cfg.url || defaultBridgeUrl()).replace(/\/$/, ''); if (!url) return;
+    linking = true; state.link ||= { rev: 0, hash: '' };
+    const H = { Authorization: `Bearer ${cfg.token}`, 'Content-Type': 'application/json' };
+    try {
+      const remote = await (await fetch(`${url}/state`, { headers: H })).json();
+      if (remote.error) throw new Error(remote.error);
+      let changed = false;
+      if (remote.rev > state.link.rev && remote.state) { Object.assign(state, mergeShared(sharedOf(), remote.state)); state.link.rev = remote.rev; changed = true; }
+      const h = hashOf(sharedOf());
+      if (h !== state.link.hash && (changed ? hashOf(remote.state) !== h : true)) {
+        let base = state.link.rev, body = sharedOf();
+        for (let tries = 0; tries < 2; tries++) {
+          const r = await (await fetch(`${url}/state`, { method: 'POST', headers: H, body: JSON.stringify({ base, state: body, device: DEVICE }) })).json();
+          if (r.ok) { state.link.rev = r.rev; break; }
+          if (r.error) throw new Error(r.error);
+          if (r.conflict) { Object.assign(state, mergeShared(sharedOf(), r.state || {})); base = r.rev; body = sharedOf(); changed = true; }
+        }
+      }
+      state.link.hash = hashOf(sharedOf()); linkInfo.at = now(); linkInfo.error = '';
+      if (changed) { for (const a of state.agents) live[a.id] ||= {}; save(); }
+      else save();
+    } catch (e) { linkInfo.error = e instanceof TypeError ? "Can't reach your bridge right now." : e.message; }
+    finally { linking = false; }
+  }
+  setInterval(() => { if (typeof document === 'undefined' || !document.hidden) linkSync().catch(() => {}); }, 8000);
+
   async function bridgeSync() {
     const cfg = bridgeCfg(); if (!cfg.enabled || !cfg.token) return;
     const url = (cfg.url || defaultBridgeUrl()).replace(/\/$/, ''); if (!url) return;
@@ -735,7 +786,7 @@ You are running on a chat-only brain: you can't use tools, browse, save files or
     };
     let res;
     try {
-      const r = await fetch(`${url}/sync`, { method: 'POST', headers: { Authorization: `Bearer ${cfg.token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ snapshot, inboxNew, commandUpdates }) });
+      const r = await fetch(`${url}/sync`, { method: 'POST', headers: { Authorization: `Bearer ${cfg.token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ snapshot, inboxNew, commandUpdates, device: DEVICE }) });
       res = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(res.error || `HTTP ${r.status}`);
       Object.assign(bridge, { connected: true, lastSync: now(), error: '' });
@@ -786,7 +837,7 @@ You are running on a chat-only brain: you can't use tools, browse, save files or
   function createTask(agentId, prompt, extra = {}) {
     const agent = agentById(agentId); if (!agent) throw httpError('Pick an agent first');
     const text = String(prompt || '').trim(); if (!text) throw httpError('Write a prompt first');
-    const task = { id: uid('task'), agent: agent.id, prompt: text.slice(0, 20000), status: 'queued', createdAt: now(), log: [], files: [], ...extra };
+    const task = { id: uid('task'), agent: agent.id, prompt: text.slice(0, 20000), status: 'queued', createdAt: now(), log: [], files: [], device: DEVICE, ...extra };
     state.tasks.unshift(task); state.tasks.length = Math.min(state.tasks.length, 150);
     event('info', agent.id, `New task: ${task.title || text.slice(0, 70)}`);
     const done = (queues[agent.id] || Promise.resolve()).then(() => execute(agent, task));
@@ -881,6 +932,7 @@ You are running on a chat-only brain: you can't use tools, browse, save files or
       device: { webgpu: hasWebGPU(), supported: canRunLocal(), loading: device.loading, loadingModel: device.loadingModel || '', progress: device.progress, text: device.text, error: device.error, loaded: device.model, downloaded: state.settings.downloaded, models: DEVICE_MODELS },
       keys: Object.fromEntries(Object.entries(keys()).map(([k, v]) => [k, k === 'customUrl' ? v : !!v])),
       connectors: connectors().map((c) => { const s = mcpSessions[c.id]; return { id: c.id, name: c.name, kind: c.kind, host: (() => { try { return new URL(c.url).host; } catch { return c.url; } })(), enabled: !!c.enabled, hasToken: !!c.token, browser: s ? (s.ok ? 'ok' : 'blocked') : 'unknown', tools: s?.tools?.map((t) => t.name) || [], error: s?.error || '' }; }),
+      link: { on: !!bridgeCfg().link, at: linkInfo.at, error: linkInfo.error, device: DEVICE_NAME },
       bridge: { enabled: !!bridgeCfg().enabled, hasToken: !!bridgeCfg().token, url: bridgeCfg().url || defaultBridgeUrl(), connected: bridge.connected, lastSync: bridge.lastSync, error: bridge.error, mcpUrl: `${(bridgeCfg().url || defaultBridgeUrl()).replace(/\/$/, '')}/mcp`, reports: (bridge.reports || []).slice(0, 5) },
       plugins: PLUGINS.map((p) => ({ name: p.name, label: p.label, icon: p.icon, description: p.description, enabled: pluginOn(p) })),
       voice: { stt: false }, clone: { available: false }, studio: { available: false, voices: [] }, voices: [],
@@ -929,6 +981,11 @@ You are running on a chat-only brain: you can't use tools, browse, save files or
       const st = state.stations.find((x) => x.id === id); if (!st) throw httpError('No such room');
       if (Array.isArray(b.equipment)) st.equipment = [...new Set(b.equipment.filter((k) => EQUIPMENT[k]))];
       event('info', null, `${st.name} equipment: ${(st.equipment || []).map((k) => EQUIPMENT[k].label).join(', ') || 'none'}`); save(); return st;
+    }],
+    ['GET', /^backup$/, () => ({ app: 'Agent Station', version: 1, savedAt: new Date().toISOString(), state })],
+    ['POST', /^restore$/, (_, b) => {
+      const st = b?.state; if (!st || !Array.isArray(st.agents) || !Array.isArray(st.stations)) throw httpError("That file isn't an Agent Station backup");
+      state = { ...DEFAULT(), ...st, settings: { ...DEFAULT().settings, ...(st.settings || {}) } }; state.link = { rev: 0, hash: '' }; save(); return { ok: true, agents: state.agents.length, tasks: state.tasks.length };
     }],
     ['POST', /^tasks\/([^/]+)\/answer$/, ([id], b) => {
       const w = askWaiters[id]; if (!w) throw httpError('That question is no longer waiting');
@@ -1008,6 +1065,7 @@ You are running on a chat-only brain: you can't use tools, browse, save files or
       if (typeof b.token === 'string' && b.token.trim()) cfg.token = b.token.trim();
       if (typeof b.url === 'string') cfg.url = b.url.trim().replace(/\/+$/, '').replace(/\/(mcp|sync)$/, '');
       if ('enabled' in b) cfg.enabled = !!b.enabled;
+      if ('link' in b) { cfg.link = !!b.link; if (cfg.link) { state.link = { rev: 0, hash: '' }; save(); } }
       setBridgeCfg(cfg);
       if (cfg.enabled) { ensureMuse(true); await bridgeSync(); if (!bridge.connected) return { ok: false, error: bridge.error }; }
       return { ok: true };

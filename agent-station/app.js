@@ -862,6 +862,15 @@
     { kind: 'url', icon: '🔗', name: 'Any MCP server', blurb: 'Paste the address of any remote MCP connector.', urlLabel: 'Server URL (https://…)', tokenLabel: 'Access token (optional)', help: 'Many apps now offer an MCP server. Only connect ones you trust: agents can use every tool it offers.' },
   ];
 
+  function linkCardHtml() {
+    if (S.mode !== 'phone') return '';
+    const b = S.bridge || {}, L = S.link || {};
+    return `<div class="card linkcard"><div class="wf-head"><span class="emo">🔗</span><div class="grow"><b>Link my phone and PC</b><p class="muted tiny">Your agents, tasks, memories, skills and files stay the same on both. Private: it goes only through your own site, locked with your bridge token.</p></div>${L.on ? `<span class="pill ${L.error ? 's-error' : 's-running'}">${L.error ? 'problem' : 'linked'}</span>` : ''}</div>
+      ${!b.enabled ? '<p class="muted tiny" style="margin:8px 0 0">Turn on the bridge below first (same token on both devices), then link.</p>'
+        : L.on ? `<p class="muted tiny" style="margin:8px 0 0">${L.error ? esc(L.error) : `This ${esc(L.device || 'device')} is linked · last sync ${L.at ? ago(L.at) : 'starting…'}`}</p><div class="row" style="margin-top:8px"><button class="btn ghost small" data-act="link-off">Unlink this device</button></div>`
+        : '<div class="row" style="margin-top:8px"><button class="btn small" data-act="link-on">🔗 Link this device</button></div>'}
+      <div class="row" style="margin-top:10px"><button class="btn ghost small" data-act="backup-save">💾 Save backup</button><label class="btn ghost small" style="cursor:pointer">📂 Restore<input type="file" accept="application/json,.json" data-change="backup-restore" hidden></label></div></div>`;
+  }
   function museCardHtml() {
     const b = S.bridge || {};
     const museAgent = agentById('muse');
@@ -1091,7 +1100,7 @@
     if (sh.kind === 'forge') html = forgeSheet();
     if (sh.kind === 'brain') html = brainSheet();
     if (sh.kind === 'outbox') html = outboxSheet();
-    if (sh.kind === 'muse') html = `<h3>🤝 Connect Muse</h3><p class="muted">Link your Muse agent so it works with your agents here.</p>${S.mode === 'phone' ? museCardHtml() : '<p class="muted tiny">The Muse Bridge runs in the phone app (the Netlify site). Open the app from your Netlify address to connect Muse.</p>'}`;
+    if (sh.kind === 'muse') html = `<h3>🤝 Muse & devices</h3><p class="muted">Link your Muse agent, and link this device with your phone or PC.</p>${S.mode === 'phone' ? linkCardHtml() + museCardHtml() : '<p class="muted tiny">The Muse Bridge runs in the phone app (the Netlify site). Open the app from your Netlify address to connect Muse.</p>'}`;
     if (sh.kind === 'welcome') html = welcomeSheet();
     if (sh.kind === 'character') { const c = CH.byId(sh.id); if (!c) return closeSheet(); html = characterSheet(c); }
     if (sh.kind === 'approvals') html = approvalsSheet();
@@ -1841,6 +1850,15 @@
     'line-save': () => { const l = ui.lineAgents || []; const n = $('#lineName'); const name = (n && n.value.trim()) || l.map(agentName).join(' ➜ '); closeSheet(); act(() => call('POST', 'workflows', { name, description: 'Production line', steps: l.map((id, i) => ({ name: agentName(id), agent: id, instructions: i === 0 ? 'Do your part of the job described in the input.' : 'Take the previous step\'s result and do your part. Improve and build on it.' })) }), 'Line built. Run it from the Flows tab.'); },
     'go-tasks': () => go('tasks'),
     agent: (id) => openSheet('agent', id),
+    'link-on': () => act(() => call('POST', 'bridge', { link: true }), '🔗 Linked: syncing with your other device'),
+    'link-off': () => act(() => call('POST', 'bridge', { link: false }), 'Unlinked this device'),
+    async 'backup-save'() {
+      try {
+        const d = await call('GET', 'backup'), blob = new Blob([JSON.stringify(d)], { type: 'application/json' }), a = document.createElement('a');
+        a.href = URL.createObjectURL(blob); a.download = `${window.SPACE_AGENCY ? 'space-agency' : 'agent-station'}-backup-${new Date().toISOString().slice(0, 10)}.json`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+        toast('💾 Backup saved to your Downloads');
+      } catch (e) { toast(e.message, 'bad'); }
+    },
     'ask-pick': (v) => { const [id, i] = String(v).split('|'); const t = S.tasks.find((x) => x.id === id); const ans = t?.ask?.options?.[+i]; if (ans) act(() => call('POST', `tasks/${encodeURIComponent(id)}/answer`, { answer: ans }), 'Sent ✓'); },
     outbox: () => { if (ui.sheet) closeSheet(); openSheet('outbox'); store.set('outboxSeen', Date.now()); setTimeout(() => { regionCache.clear(); update(); }, 400); },
     async 'file-share'(name) {
@@ -2252,6 +2270,7 @@
     if (k === 'voice-lang') { voiceCfg.lang = e.target.value; voiceCfg.voice = ''; store.set('voice', voiceCfg); regionCache.clear(); update(); }
     if (k === 'voice-voice') { voiceCfg.voice = e.target.value; store.set('voice', voiceCfg); speak('This is my new voice.'); }
     if (k === 'voice-rate') { voiceCfg.rate = +e.target.value; store.set('voice', voiceCfg); regionCache.clear(); update(); }
+    if (k === 'backup-restore') { const f = e.target.files?.[0]; if (!f) return; f.text().then((txt) => { let d; try { d = JSON.parse(txt); } catch { return toast("That file isn't a backup", 'bad'); } if (!confirm(`Restore this backup? It replaces what's on this device (${(d.state?.agents || []).length} agents, ${(d.state?.tasks || []).length} tasks).`)) return; act(() => call('POST', 'restore', { state: d.state }), 'Backup restored ✓'); }); return; }
     if (k === 'agent-voice') act(() => call('PATCH', `agents/${encodeURIComponent(e.target.dataset.id)}`, { voiceId: e.target.value }), 'Speaking voice updated');
     if (k === 'agent-model') act(() => call('PATCH', `agents/${encodeURIComponent(e.target.dataset.id)}`, { model: e.target.value }), 'Model updated');
   });

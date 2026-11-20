@@ -128,7 +128,27 @@ export async function handleSync(store, body = {}) {
     inbox = inbox.slice(0, 100); await store.set('inbox', inbox);
   }
   const reports = await load(store, 'reports', []);
-  return { commands: cmds.filter((c) => c.status === 'pending'), inbox, reports: reports.slice(0, 20), serverTime: now() };
+  // one device runs each Muse request: the first device to see it claims it (a stale claim expires after 10 minutes)
+  const dev = typeof body.device === 'string' ? body.device.slice(0, 40) : '';
+  let claimed = false;
+  const mine = cmds.filter((c) => {
+    if (c.status !== 'pending') return false;
+    if (!dev) return true;
+    if (!c.claimedBy || (c.claimedBy !== dev && now() - (c.claimedAt || 0) > 600000)) { c.claimedBy = dev; c.claimedAt = now(); claimed = true; }
+    return c.claimedBy === dev;
+  });
+  if (claimed) await store.set('commands', cmds);
+  return { commands: mine, inbox, reports: reports.slice(0, 20), serverTime: now() };
+}
+
+/** Private phone <-> PC link: one shared copy of the station, saved with a revision number. */
+export async function handleState(store, method, body = {}) {
+  const cur = (await load(store, 'linkstate', null)) || { rev: 0, state: null };
+  if (method === 'GET') return cur;
+  if ((body.base | 0) !== cur.rev) return { conflict: true, ...cur };
+  const next = { rev: cur.rev + 1, state: body.state || null, device: String(body.device || '').slice(0, 40), at: now() };
+  if (JSON.stringify(next).length > 4_500_000) return { error: 'Your station is too big to link (over 4.5 MB). Remove some large files.' };
+  await store.set('linkstate', next); return { ok: true, rev: next.rev };
 }
 
 /** Shared HTTP handling for any web-standard runtime (Netlify Functions, Deno, Bun, Node 18+). */
@@ -151,6 +171,7 @@ export async function handleRequest(request, store, token) {
     const out = await handleMcp(store, body);
     return out ? json(out) : new Response(null, { status: 202, headers: cors });
   }
+  if (path.endsWith('/bridge/state')) return json(await handleState(store, request.method, request.method === 'GET' ? {} : await request.json().catch(() => ({}))));
   if (path.endsWith('/bridge/health')) return json({ ok: true, mcp: '/bridge/mcp' });
   return json({ error: 'Not found' }, 404);
 }

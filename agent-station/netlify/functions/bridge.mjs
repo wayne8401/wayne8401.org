@@ -9,4 +9,4 @@ export default async (request) => {
   return handleRequest(request, store, process.env.BRIDGE_TOKEN || '');
 };
 
-export const config = { path: ['/bridge/mcp', '/bridge/sync', '/bridge/health'] };
+export const config = { path: ['/bridge/mcp', '/bridge/sync', '/bridge/state', '/bridge/health'] };

@@ -1120,7 +1120,7 @@
     update();
   }
   function stationView() {
-    const host = $('#svhost'), V = window.SPACE_AGENCY ? window.SpaceAgencyCity : window.AgentStationView; if (!host || !V) return;
+    const host = $('#svhost'), V = window.SPACE_AGENCY ? (window.SpaceAgencyCity3D || (window.SA3D_WANTED && !window.SA3D_FAILED ? null : window.SpaceAgencyCity)) : window.AgentStationView; if (!host || !V) return;
     V.mount(host, {
       onAgent: (id) => ACTIONS.agent(id),
       onOutbox: () => ACTIONS.outbox(),

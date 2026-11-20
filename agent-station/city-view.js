@@ -432,4 +432,5 @@
     if (!running) { running = true; requestAnimationFrame(frame); }
   }
   window.SpaceAgencyCity = { mount, setData, fit: () => { cam.fitted = false; fit(); } };
+  window.SpaceAgencyCityModel = { defaultCity, FOOT, LOTS, KEY, TOOLS, GW, GH, stationType };
 })();

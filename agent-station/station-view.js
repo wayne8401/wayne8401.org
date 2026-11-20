@@ -19,6 +19,7 @@
   const cam = { x: 0, y: 0, z: 1, fitted: false };
   const bots = new Map(); // agent id -> walker state
   const npcs = [];
+  let cmdr = null; // the owner's own avatar walks the station too
   const sprites = new Map(); // svg -> Image
   let running = false, lastT = 0, visible = true;
 
@@ -323,6 +324,7 @@
       if (!work && (b.sitting || b.goingToDesk)) { b.sitting = false; b.goingToDesk = false; b.wait = rnd(.5, 2); b.path = []; }
     }
     for (const id of [...bots.keys()]) if (!seen.has(id)) bots.delete(id);
+    if (!cmdr && handlers.commanderSprite) { const r = roomById('__lounge') || world.rooms[0]; const p = insidePoint(r); cmdr = { commander: true, x: p.x, y: p.y, room: r.id, home: r.id, path: [], wait: 1.5, dir: 1 }; }
     // a maintenance drone per few rooms keeps the place alive
     const want = Math.max(2, Math.ceil(world.rooms.length / 2));
     while (npcs.length < want) { const r = pick(world.rooms); const p = insidePoint(r); npcs.push({ npc: true, x: p.x, y: p.y, room: r.id, path: [], wait: rnd(0, 3), dir: 1 }); }
@@ -331,7 +333,8 @@
     const home = roomById(b.home || b.room) || world.rooms[0];
     const roll = Math.random();
     let r = home;
-    if (b.npc || roll > .72) r = pick(world.rooms);
+    if (b.commander) r = roll < .5 ? (roomById('__lounge') || home) : pick(world.rooms.filter((x) => !x.deco) .concat(world.rooms));
+    else if (b.npc || roll > .72) r = pick(world.rooms);
     else if (roll > .55) r = roomById('__lounge') || home;
     b.path = route(b, r, insidePoint(r));
   }
@@ -424,7 +427,7 @@
       ctx.fillStyle = 'rgba(0,0,0,.4)'; ctx.fillRect(x - 6, y + 7, 14, 3); ctx.fillStyle = '#b8895a'; ctx.fillRect(x - 6, y - 4, 12, 10); ctx.strokeStyle = '#6b4a32'; ctx.strokeRect(x - 5.5, y - 3.5, 11, 9);
     }
     // walkers, painted back-to-front
-    const all = [...bots.values(), ...npcs];
+    const all = [...bots.values(), ...npcs, ...(cmdr ? [cmdr] : [])];
     for (const w of all) stepWalker(w, dt);
     all.sort((p, q) => p.y - q.y);
     hits.length = 0;
@@ -436,15 +439,17 @@
   }
   const hits = [];
   function drawWalker(c, w, t) {
-    const sz = w.npc ? 16 : 26, bob = w.moving ? Math.abs(Math.sin(t * 10 + w.x * .1)) * 2 : w.sitting ? 0 : Math.sin(t * 2 + w.y) * .4;
+    const sz = w.npc ? 16 : w.commander ? 30 : 26, bob = w.moving ? Math.abs(Math.sin(t * 10 + w.x * .1)) * 2 : w.sitting ? 0 : Math.sin(t * 2 + w.y) * .4;
     c.fillStyle = 'rgba(0,0,0,.4)'; c.beginPath(); c.ellipse(w.x, w.y, sz * .32, sz * .12, 0, 0, 7); c.fill();
     let img = null;
-    if (w.npc) img = spriteImg(handlers.sprite?.({ id: 'npc', look: NPC_LOOK }));
+    if (w.commander) img = spriteImg(handlers.commanderSprite?.());
+    else if (w.npc) img = spriteImg(handlers.sprite?.({ id: 'npc', look: NPC_LOOK }));
     else img = spriteImg(handlers.sprite?.(w.agent));
     c.save(); c.translate(w.x, w.y - bob); if (w.dir < 0) c.scale(-1, 1);
     if (img) c.drawImage(img, -sz / 2, -sz, sz, sz);
     else { c.fillStyle = '#d9dde6'; c.fillRect(-4, -sz * .8, 8, sz * .8); c.beginPath(); c.arc(0, -sz * .85, 4, 0, 7); c.fill(); }
     c.restore();
+    if (w.commander) { label(c, 'COMMANDER', w.x, w.y - sz - 12, { color: '#ffe3a3', bg: 'rgba(40,28,6,.88)', border: '#b8892a', size: 6, align: 'center' }); hits.push({ commander: true, x: w.x, y: w.y - sz / 2, r: sz * .6 }); return; }
     if (!w.npc) {
       hits.push({ id: w.id, x: w.x, y: w.y - sz / 2, r: sz * .6 });
       const asking = data?.tasks?.some((x) => x.agent === w.id && x.status === 'running' && x.ask);
@@ -508,7 +513,8 @@
       if (pts.size === 1 && moved < 8) { // tap: open the robot under the finger
         const p = toWorld(pos(e).x, pos(e).y);
         const h = hits.slice().reverse().find((h) => Math.hypot(h.x - p.x, h.y - p.y) < h.r + 4);
-        if (h) handlers.onAgent?.(h.id);
+        if (h?.commander) handlers.onCommander?.();
+        else if (h) handlers.onAgent?.(h.id);
         else { const ob = world.rooms.find((r) => r.outbox && p.x > r.x && p.x < r.x + r.w && p.y > r.y && p.y < r.y + r.h); if (ob) handlers.onOutbox?.(); }
       }
       pts.delete(e.pointerId); if (pts.size < 2) pinch = 0;
@@ -527,6 +533,7 @@
     const key = layoutKey(d);
     if (key !== staticKey) {
       staticKey = key; world = build(d); staticLayer = drawStatic(world, d);
+      cmdr = null;
       for (const b of bots.values()) { const r = roomById(b.home); if (r) { const p = insidePoint(r); Object.assign(b, { x: p.x, y: p.y, room: r.id, path: [], sitting: false, goingToDesk: false }); } }
       npcs.length = 0; if (cam.fitted) clampCam();
     }

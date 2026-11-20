@@ -733,3 +733,7 @@ body.noscroll { overflow: hidden; }
 .eqbtn { width: 22px; height: 22px; padding: 0; border-radius: 5px; border: 1px solid #3a4a6a; background: rgba(10,14,24,.85); font-size: 12px; line-height: 1; opacity: .35; filter: grayscale(1); cursor: pointer; }
 .eqbtn.on { opacity: 1; filter: none; border-color: #4dffa6; box-shadow: 0 0 6px rgba(77,255,166,.35); }
 .outboxcard, .outboxcard b { color: var(--text); }
+
+/* Commander avatar in the greeting card */
+.hello { display: flex; align-items: center; gap: 12px; }
+.avatar.cmdr { flex: none; border-radius: 14px; overflow: hidden; box-shadow: 0 0 0 2px rgba(233,185,73,.55); }

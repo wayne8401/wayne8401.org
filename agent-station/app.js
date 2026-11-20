@@ -584,7 +584,7 @@
   /* Asks before guessing (a StarNet idea): an agent's one question waits here for a tap. */
   function askCard(t) {
     const a = agentById(t.agent) || { id: t.agent, name: t.agent };
-    return `<div class="card askcard"><div class="wf-head">${avatar(a, 'sm')}<div class="grow"><b>❓ ${esc(a.name)} needs your answer</b><p class="askq">${esc(t.ask.question)}</p></div></div>
+    return `<div class="card askcard"><div class="wf-head">${avatar(a, 'sm')}<div class="grow"><b>❓ ${esc(a.name)} needs your answer, Commander</b><p class="askq">${esc(t.ask.question)}</p></div></div>
       ${t.ask.options?.length ? `<div class="askopts">${t.ask.options.map((o, i) => `<button class="chip" data-act="ask-pick" data-id="${esc(t.id)}|${i}">${esc(o)}</button>`).join('')}</div>` : ''}
       <form class="row askform" data-form="ask" data-id="${esc(t.id)}"><input name="answer" maxlength="500" placeholder="Or type your own answer" autocomplete="off"><button class="btn small" type="submit">Send</button></form></div>`;
   }
@@ -636,12 +636,12 @@
       }).join('') || empty('No stations yet.');
     },
     hello: () => {
-      if (S.mode === 'phone' && !S.models.length) return `<div><h3>${greeting()}</h3><p class="muted">Your agents run <b>on this phone</b>, but they need a brain first. It's free.</p></div>
+      if (S.mode === 'phone' && !S.models.length) return `${commanderAvatar('md')}<div class="grow"><h3>${greeting()}</h3><p class="muted">Your agents run <b>on this phone</b>, but they need a brain first. It's free.</p></div>
         <button class="btn small" data-act="brain">🧠 Set up</button>`;
       const line = S.mode === 'demo' ? 'You are in <b>demo mode</b>: everything is simulated. Tap ⚙️ to run real agents.'
         : S.mode === 'phone' ? `Agents run on this phone · ${esc(shortModel(S.defaultModel))}${isFree(S.defaultModel) ? ' · free' : ''}`
         : `Connected to your station · ${esc(shortModel(S.defaultModel || S.model))}`;
-      return `<div><h3>${greeting()}</h3><p class="muted">${line}</p>${S.mode === 'phone' ? `<button class="brainchip" data-act="brain">🧠 Brain: <b>${esc(shortModel(S.defaultModel))}</b> ▾</button>` : ''}</div><button class="btn small" data-act="go-tasks">+ New task</button>`;
+      return `${commanderAvatar('md')}<div class="grow"><h3>${greeting()}</h3><p class="muted">${line}</p>${S.mode === 'phone' ? `<button class="brainchip" data-act="brain">🧠 Brain: <b>${esc(shortModel(S.defaultModel))}</b> ▾</button>` : ''}</div><button class="btn small" data-act="go-tasks">+ New task</button>`;
     },
     stats() {
       const A = S.agents;
@@ -902,9 +902,10 @@
       <div class="ggrid">${CONN_CATALOG.map((c) => `<button class="card gcard" data-act="pconn-add" data-id="${c.kind}"><span class="emo big">${c.icon}</span><b>${esc(c.name)}</b><span class="muted tiny">${esc(c.blurb)}</span></button>`).join('')}</div>`;
   }
 
+  const commanderAvatar = (size = 'md', full = false) => (window.AgentStationCommander ? `<span class="avatar art ${size} cmdr">${window.AgentStationCommander.svg({ full })}</span>` : '');
   function greeting() {
     const h = new Date().getHours();
-    return `${h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening'} 👋`;
+    return `${h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening'}, Commander`;
   }
 
   function eventsHtml(list) {
@@ -1123,6 +1124,8 @@
     V.mount(host, {
       onAgent: (id) => ACTIONS.agent(id),
       onOutbox: () => ACTIONS.outbox(),
+      onCommander: () => toast('That\'s you, Commander 🫡 Your crew is on it.'),
+      commanderSprite: () => window.AgentStationCommander?.svg({ full: true, bare: true }),
       sprite: (a) => { const look = a.id === 'npc' ? a.look : lookOf(a); return look ? CH.avatarSvg(look, '', { full: true, bare: true }) : null; },
     });
     V.setData({ stations: S.stations || [], agents: S.agents || [], tasks: S.tasks || [], workflows: S.workflows || [], files: S.files || [], outboxNew: (S.files || []).filter((f) => f.updatedAt > outboxSeen()).length });

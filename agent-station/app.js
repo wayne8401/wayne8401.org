@@ -474,6 +474,7 @@
       <span class="rprops">${props.map((k) => `<span class="rprop ${k}">${PROP[k]}</span>`).join('')}</span>
       <span class="rline"><span class="rmach">${machineSvg(busy)}</span><span class="rbelt ${busy ? 'on' : ''}">${busy ? '<i class="box"></i><i class="box b2"></i>' : ''}</span>${Array.from({ length: extra }, () => `<span class="rmach small">${machineSvg(busy)}</span>`).join('')}</span>
       <span class="rdesks">${desks}${team.length > 4 ? `<span class="rmore">+${team.length - 4}</span>` : ''}</span>
+      ${S.mode === 'phone' && S.equipment ? `<span class="requip">${Object.entries(S.equipment).map(([k, e]) => { const on = Array.isArray(st.equipment) ? st.equipment.includes(k) : true; return `<button class="eqbtn ${on ? 'on' : ''}" data-act="equip-toggle" data-id="${esc(st.id)}:${k}" title="${esc(e.label)}: ${esc(e.what)}" aria-label="${esc(e.label)} ${on ? 'installed' : 'not installed'}" aria-pressed="${on}">${e.icon}</button>`; }).join('')}</span>` : ''}
       <span class="rstats">${mine.length} RUNS · ${shipped} SHIPPED · ${failed} FAILED</span>
       ${pending ? `<span class="rpend">${pending} pending</span>` : ''}
       ${building ? '<span class="rbuild">🏗️ UNDER CONSTRUCTION</span>' : ''}
@@ -517,6 +518,7 @@
   /* ============================================================= views */
   const VIEWS = {
     station: () => `
+      <div data-region="asks"></div>
       <div class="hello card" data-region="hello"></div>
       <div class="stats" id="statsRow" data-region="stats"></div>
       <div class="h2row"><h2>🏭 Production line</h2><span class="muted tiny livetag" data-region="lineTag"></span></div>
@@ -534,6 +536,8 @@
       <div class="feed" data-region="feed"></div>`,
 
     tasks: () => `
+      <div data-region="asks"></div>
+      <div data-region="outbox"></div>
       <form class="card composer" id="composer" data-form="task">
         <div class="h2row" style="margin:0 0 8px"><h3>Give an agent a task</h3><button type="button" class="link" data-act="lesson" data-id="prompts">How?</button></div>
         <div class="pickers" id="agentPicker" data-region="picker"></div>
@@ -577,7 +581,29 @@
       <button class="btn ghost" data-act="settings">⚙️ Connection &amp; settings</button>`,
   };
 
+  /* Asks before guessing (a StarNet idea): an agent's one question waits here for a tap. */
+  function askCard(t) {
+    const a = agentById(t.agent) || { id: t.agent, name: t.agent };
+    return `<div class="card askcard"><div class="wf-head">${avatar(a, 'sm')}<div class="grow"><b>❓ ${esc(a.name)} needs your answer</b><p class="askq">${esc(t.ask.question)}</p></div></div>
+      ${t.ask.options?.length ? `<div class="askopts">${t.ask.options.map((o, i) => `<button class="chip" data-act="ask-pick" data-id="${esc(t.id)}|${i}">${esc(o)}</button>`).join('')}</div>` : ''}
+      <form class="row askform" data-form="ask" data-id="${esc(t.id)}"><input name="answer" maxlength="500" placeholder="Or type your own answer" autocomplete="off"><button class="btn small" type="submit">Send</button></form></div>`;
+  }
+  const outboxSeen = () => +store.get('outboxSeen', 0) || 0;
+  function fileMaker(name) { const t = S.tasks.find((x) => x.files?.includes(name)); return t ? agentById(t.agent) || { id: t.agent, name: t.agent } : null; }
+  function outboxSheet() {
+    const files = S.files || [], seen = outboxSeen();
+    return `<h3>📦 Outbox</h3><p class="muted">Finished work your agents delivered: real files you can open, share or download. Newest first.</p>
+      <div class="list" style="margin-top:12px">${files.map((f) => { const who = fileMaker(f.name); return `<div class="card obfile ${f.updatedAt > seen ? 'fresh' : ''}">
+        <div class="wf-head">${who ? avatar(who, 'sm') : '<span class="emo">📄</span>'}<div class="grow"><b>${esc(f.name)}</b><p class="muted tiny">${who ? esc(who.name) + ' · ' : ''}${ago(f.updatedAt)} · ${(f.size / 1024).toFixed(1)} KB${f.updatedAt > seen ? ' · <b class="newtag">NEW</b>' : ''}</p></div></div>
+        <div class="row obbtns"><button class="btn small" data-act="file" data-id="${esc(f.name)}">Open</button><button class="btn small ghost" data-act="file-share" data-id="${esc(f.name)}">Share</button><button class="btn small ghost" data-act="download" data-id="${esc(f.name)}">Download</button></div></div>`; }).join('') || empty('Nothing delivered yet. Ask an agent to “save it as a file” and it lands here.')}</div>`;
+  }
   const REGIONS = {
+    asks() { return S.tasks.filter((t) => t.ask && t.status === 'running').map(askCard).join(''); },
+    outbox() {
+      const files = S.files || []; if (!files.length) return '';
+      const fresh = files.filter((f) => f.updatedAt > outboxSeen()).length;
+      return `<button class="card outboxcard" data-act="outbox"><span class="emo">📦</span><div class="grow"><b>Outbox</b><p class="muted tiny">${files.length} deliverable${files.length > 1 ? 's' : ''} · latest: ${esc(files[0].name)}</p></div>${fresh ? `<span class="pill s-running">${fresh} new</span>` : ''}<span class="muted">›</span></button>`;
+    },
     lineTag: () => { const n = S.tasks.filter((t) => t.status === 'running').length; return n ? `<span class="dotlive"></span> ${n} in production` : 'idle'; },
     line() {
       const pkg = (t) => {
@@ -953,6 +979,13 @@
   ];
 
   /* ============================================================= sheets */
+  function equipCard(a, st) {
+    if (!S.equipment || a.external) return '';
+    const have = Array.isArray(st?.equipment) ? st.equipment : Object.keys(S.equipment);
+    return `<div class="card equipcard"><div class="muted tiny">🧰 What ${esc(a.name)} can do (equipment in ${esc(st?.name || 'its room')})</div>
+      <div class="eqlist">${Object.entries(S.equipment).map(([k, e]) => `<div class="eqrow ${have.includes(k) ? 'on' : 'off'}"><span>${e.icon}</span><span class="grow"><b>${esc(e.label)}</b> <small class="muted">${esc(e.what)}</small></span><span class="tiny">${have.includes(k) ? '✅' : 'not installed'}</span></div>`).join('')}</div>
+      ${S.mode === 'phone' ? '<p class="muted tiny" style="margin:6px 0 0">Change it on the Station tab → 🧱 Edit rooms. Equipment in a room is what its agents are allowed to use.</p>' : ''}</div>`;
+  }
   function agentSheet(a) {
     const st = S.stations.find((s) => s.id === a.station);
     const tasks = S.tasks.filter((t) => t.agent === a.id);
@@ -961,6 +994,7 @@
     return `
       <div class="agent static">${avatar(a)}<div><h3>${esc(a.name)}</h3><p class="muted">${esc(a.role)} · ${esc(st ? st.name : a.station)}</p></div>${pill(a.status)}</div>
       <div class="card" style="margin-top:14px"><div class="muted tiny">Right now</div><div style="margin-top:4px">${esc(a.task || '—')}</div>${bar(a.status === 'running' ? a.progress : 0)}</div>
+      ${equipCard(a, st)}
       <div class="kv">
         <div><span>Tasks done</span><b>${S.tasks.filter((t) => t.agent === a.id && t.status === 'done').length}</b></div>
         <div><span>Spend</span><b>$${(a.cost || 0).toFixed(2)}</b></div>
@@ -987,6 +1021,7 @@
     const a = agentById(t.agent) || { id: t.agent, name: t.agent };
     return `
       <div class="wf-head">${avatar(a)}<div class="grow"><h3>${esc(a.name)}</h3><p class="muted">${esc(t.title || 'Task')} · ${ago(t.createdAt)}</p></div>${pill(t.status)}</div>
+      ${t.ask && t.status === 'running' ? askCard(t) : ''}
       <h2>Your prompt</h2><div class="card"><p class="prewrap">${esc(t.prompt)}</p></div>
       <h2>Timeline</h2>
       <div class="card"><ol class="timeline">${(t.log || []).map((l) => `<li><span class="mono muted">${clock(l.ts)}</span> ${esc(l.msg)}</li>`).join('') || `<li class="muted">${t.status === 'queued' ? 'Waiting for the agent to finish its current task…' : 'Starting…'}</li>`}${t.status === 'running' ? '<li class="pulse-dot">working…</li>' : ''}</ol></div>
@@ -1054,6 +1089,7 @@
     if (sh.kind === 'gallery') html = gallerySheet();
     if (sh.kind === 'forge') html = forgeSheet();
     if (sh.kind === 'brain') html = brainSheet();
+    if (sh.kind === 'outbox') html = outboxSheet();
     if (sh.kind === 'muse') html = `<h3>🤝 Connect Muse</h3><p class="muted">Link your Muse agent so it works with your agents here.</p>${S.mode === 'phone' ? museCardHtml() : '<p class="muted tiny">The Muse Bridge runs in the phone app (the Netlify site). Open the app from your Netlify address to connect Muse.</p>'}`;
     if (sh.kind === 'welcome') html = welcomeSheet();
     if (sh.kind === 'character') { const c = CH.byId(sh.id); if (!c) return closeSheet(); html = characterSheet(c); }
@@ -1086,9 +1122,10 @@
     const host = $('#svhost'), V = window.AgentStationView; if (!host || !V) return;
     V.mount(host, {
       onAgent: (id) => ACTIONS.agent(id),
+      onOutbox: () => ACTIONS.outbox(),
       sprite: (a) => { const look = a.id === 'npc' ? a.look : lookOf(a); return look ? CH.avatarSvg(look, '', { full: true, bare: true }) : null; },
     });
-    V.setData({ stations: S.stations || [], agents: S.agents || [], tasks: S.tasks || [], workflows: S.workflows || [] });
+    V.setData({ stations: S.stations || [], agents: S.agents || [], tasks: S.tasks || [], workflows: S.workflows || [], files: S.files || [], outboxNew: (S.files || []).filter((f) => f.updatedAt > outboxSeen()).length });
   }
   function update() {
     try { stationView(); } catch (e) { console.warn('station view', e); }
@@ -1799,6 +1836,22 @@
     'line-save': () => { const l = ui.lineAgents || []; const n = $('#lineName'); const name = (n && n.value.trim()) || l.map(agentName).join(' ➜ '); closeSheet(); act(() => call('POST', 'workflows', { name, description: 'Production line', steps: l.map((id, i) => ({ name: agentName(id), agent: id, instructions: i === 0 ? 'Do your part of the job described in the input.' : 'Take the previous step\'s result and do your part. Improve and build on it.' })) }), 'Line built. Run it from the Flows tab.'); },
     'go-tasks': () => go('tasks'),
     agent: (id) => openSheet('agent', id),
+    'ask-pick': (v) => { const [id, i] = String(v).split('|'); const t = S.tasks.find((x) => x.id === id); const ans = t?.ask?.options?.[+i]; if (ans) act(() => call('POST', `tasks/${encodeURIComponent(id)}/answer`, { answer: ans }), 'Sent ✓'); },
+    outbox: () => { if (ui.sheet) closeSheet(); openSheet('outbox'); store.set('outboxSeen', Date.now()); setTimeout(() => { regionCache.clear(); update(); }, 400); },
+    async 'file-share'(name) {
+      try {
+        const text = await call('GET', 'files/' + encodeURIComponent(name));
+        if (navigator.share) { await navigator.share({ title: name, text }); return; }
+        await navigator.clipboard.writeText(text); toast('Copied, paste it anywhere');
+      } catch (e) { if (e?.name !== 'AbortError') toast(e.message || 'Could not share', 'bad'); }
+    },
+    'equip-toggle': (v) => {
+      const [id, k] = String(v).split(':'); const st = S.stations.find((x) => x.id === id); if (!st || !S.equipment?.[k]) return;
+      const cur = Array.isArray(st.equipment) ? [...st.equipment] : Object.keys(S.equipment);
+      const next = cur.includes(k) ? cur.filter((x) => x !== k) : [...cur, k];
+      const e = S.equipment[k];
+      act(() => call('PATCH', `stations/${encodeURIComponent(id)}`, { equipment: next }), `${e.icon} ${e.label} ${cur.includes(k) ? 'removed from' : 'installed in'} ${st.name}`);
+    },
     'sv-fit': () => window.AgentStationView?.fit(),
     'sv-full': () => { const c = $('.svcard'); if (!c) return; const on = c.classList.toggle('svfull'); document.body.classList.toggle('noscroll', on); const b = c.querySelector('[data-act=sv-full]'); if (b) b.textContent = on ? '✕ Close' : '⛶ Full screen'; setTimeout(() => window.AgentStationView?.fit(), 50); },
     task: (id) => openSheet('task', id),
@@ -2005,6 +2058,10 @@
   }
 
   const FORMS = {
+    async ask(f) {
+      const v = f.answer.value.trim(); if (!v) return toast('Type an answer, or tap an option', 'bad');
+      await act(() => call('POST', `tasks/${encodeURIComponent(f.dataset.id)}/answer`, { answer: v }), 'Sent ✓');
+    },
     async task(f) {
       const prompt = f.prompt.value.trim();
       if (!prompt) return toast('Write what you want done first', 'bad');

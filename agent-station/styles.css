@@ -712,3 +712,24 @@ body.noscroll { overflow: hidden; }
 .roomedit summary::-webkit-details-marker { display: none; }
 .roomedit[open] summary { margin-bottom: 10px; }
 @media (min-width: 1000px) { .svhost { height: 600px; } }
+
+/* Asks before guessing */
+.askcard { border-color: rgba(255,200,90,.6) !important; background: linear-gradient(135deg, rgba(255,200,90,.10), rgba(56,232,255,.04)) !important; margin-bottom: 12px; }
+.askq { margin: 4px 0 0; font-size: 15px; }
+.askopts { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 10px; }
+.askopts .chip { font-size: 14px; padding: 9px 13px; }
+.askform input { flex: 1; min-width: 0; }
+/* Outbox */
+.outboxcard { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; margin-bottom: 12px; border-color: rgba(201,154,107,.5) !important; }
+.obfile.fresh { border-color: rgba(77,255,166,.5) !important; }
+.obbtns { margin-top: 10px; gap: 8px; }
+.newtag { color: var(--green); }
+/* Equipment = abilities */
+.equipcard { margin-top: 12px; }
+.eqlist { display: grid; gap: 6px; margin-top: 8px; }
+.eqrow { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.eqrow.off { opacity: .5; }
+.requip { position: absolute; top: 18px; right: 6px; display: flex; gap: 2px; z-index: 3; }
+.eqbtn { width: 22px; height: 22px; padding: 0; border-radius: 5px; border: 1px solid #3a4a6a; background: rgba(10,14,24,.85); font-size: 12px; line-height: 1; opacity: .35; filter: grayscale(1); cursor: pointer; }
+.eqbtn.on { opacity: 1; filter: none; border-color: #4dffa6; box-shadow: 0 0 6px rgba(77,255,166,.35); }
+.outboxcard, .outboxcard b { color: var(--text); }

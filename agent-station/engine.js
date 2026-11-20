@@ -41,12 +41,13 @@
   const setKeys = (k) => { try { localStorage.setItem(KEYS_LS, JSON.stringify(k)); } catch { /* private mode */ } };
 
   /* ------------------------------------------------------------ state */
+  const DEFAULT_EQUIP = { research: ['dish', 'console', 'shelf', 'board', 'uplink'], studio: ['ring', 'console', 'shelf', 'board'], ops: ['board', 'console', 'shelf', 'dish', 'uplink'] };
   const ECHO = () => ({ id: 'echo', name: 'Echo', role: 'Social media manager', station: 'studio', instructions: 'You plan and write social media posts: scroll-stopping hooks, captions sized for each platform, relevant hashtags and a simple posting schedule. Match the brand voice asked for, suggest an image or video idea for each post, and never post anything yourself unless a connected tool is asked to.' });
   const DEFAULT = () => ({
     stations: [
-      { id: 'research', name: 'Research Bay', region: 'web' },
-      { id: 'studio', name: 'Studio', region: 'writing' },
-      { id: 'ops', name: 'Ops Deck', region: 'planning' },
+      { id: 'research', name: 'Research Bay', region: 'web', equipment: [...DEFAULT_EQUIP.research] },
+      { id: 'studio', name: 'Studio', region: 'writing', equipment: [...DEFAULT_EQUIP.studio] },
+      { id: 'ops', name: 'Ops Deck', region: 'planning', equipment: [...DEFAULT_EQUIP.ops] },
     ],
     agents: [
       { id: 'scout', name: 'Scout', role: 'Web researcher', station: 'research', instructions: 'You find accurate, current information. Prefer reputable sources, cite links, and flag anything uncertain.' },
@@ -72,6 +73,7 @@
       const saved = await idb.get('state');
       if (saved) state = { ...DEFAULT(), ...saved, settings: { ...DEFAULT().settings, ...(saved.settings || {}) } };
       state.approvals ||= [];
+      if (!state.settings.equipAdded) { for (const st of state.stations) if (!Array.isArray(st.equipment) && DEFAULT_EQUIP[st.id]) st.equipment = [...DEFAULT_EQUIP[st.id]]; state.settings.equipAdded = true; } // rooms got equipment in a later version
       if (!state.settings.echoAdded) { if (!state.agents.some((x) => x.id === 'echo')) state.agents.push(ECHO()); state.settings.echoAdded = true; } // Echo joined in a later version
       for (const t of state.tasks) if ((t.status === 'running' || t.status === 'queued') && t.agent !== 'muse') { t.status = 'error'; t.result = 'The app was closed before this task finished. Keep the app open while agents work.'; }
       for (const r of state.runs) if (r.status === 'running') { r.status = 'error'; r.steps.forEach((st) => { if (st.status === 'running') st.status = 'error'; }); }
@@ -307,10 +309,35 @@
     return out.length > 30000 ? out.slice(0, 30000) + '\n…[truncated]' : out || '(no output)';
   }
 
+  /* ------------------------------------------------------------ equipment = abilities
+     What a room has installed decides what its agents can do (a StarNet idea, MIT, starnetos.com).
+     A station without an equipment list (older stations) keeps every tool. */
+  const EQUIPMENT = {
+    dish: { label: 'Radar dish', icon: '📡', what: 'web search, Wikipedia and weather', tools: ['web_search', 'web_fetch', 'plugin_wikipedia', 'plugin_weather'] },
+    console: { label: 'Terminal', icon: '🖥️', what: 'writing and reading files (deliverables)', tools: ['write_file', 'read_file', 'list_files'] },
+    shelf: { label: 'Archive shelf', icon: '📚', what: 'memories and skills', tools: ['remember', 'recall', 'save_skill', 'use_skill'] },
+    board: { label: 'Planning board', icon: '📊', what: 'math, dates, profit and planning tools', tools: ['plugin_calculator', 'plugin_store_profit', 'plugin_drop_countdown', 'plugin_current_time'] },
+    ring: { label: 'Studio rig', icon: '💡', what: 'social posts for your approval', tools: ['queue_post', 'plugin_best_time_to_post'] },
+    uplink: { label: 'Connector uplink', icon: '🔌', what: 'your work connectors (Zapier, GitHub, MCP)', tools: ['@connectors'] },
+  };
+  const ALWAYS_TOOLS = new Set(['report_progress', 'ask_user']);
+  const GATED = new Set(Object.values(EQUIPMENT).flatMap((e) => e.tools));
+  const equipmentOf = (agent) => { const st = state.stations.find((x) => x.id === agent?.station); return st && Array.isArray(st.equipment) ? st.equipment : null; };
+  function allowedTool(agent, name, isConnector = false) {
+    const eq = equipmentOf(agent); if (!eq || agent?.external) return true;
+    if (ALWAYS_TOOLS.has(name)) return true;
+    if (isConnector) return eq.includes('uplink');
+    if (!GATED.has(name)) return true; // tools no equipment covers stay available
+    return eq.some((k) => EQUIPMENT[k]?.tools.includes(name));
+  }
+  const equipFor = (name) => Object.values(EQUIPMENT).find((e) => e.tools.includes(name));
+  const askWaiters = {};
+
   /* ------------------------------------------------------------ tools */
   const obj = (properties, required = Object.keys(properties)) => ({ type: 'object', properties, required, additionalProperties: false });
   const CORE_TOOLS = [
     { name: 'report_progress', description: 'Tell the user what you are doing right now (shown live). Call it when you start and at milestones.', parameters: obj({ message: { type: 'string' }, percent: { type: 'integer' } }) },
+    { name: 'ask_user', description: 'Ask the Commander ONE short question when the task is unclear in a way that would change the result (a missing key detail, or two very different readings). Give 2-4 short answer options. Do not ask about things you can reasonably assume. The task pauses until they answer.', parameters: obj({ question: { type: 'string' }, options: { type: 'array', items: { type: 'string' } } }) },
     { name: 'remember', description: 'Save a durable fact for future tasks (preferences, decisions, results). Never store secrets.', parameters: obj({ fact: { type: 'string' }, scope: { type: 'string', enum: ['agent', 'shared'] } }) },
     { name: 'recall', description: 'Search saved memories by keywords.', parameters: obj({ query: { type: 'string' } }) },
     { name: 'save_skill', description: 'Learn a skill: save a reusable playbook for this kind of task. Use when asked to learn something, or after a task the user will likely repeat.', parameters: obj({ name: { type: 'string' }, description: { type: 'string' }, instructions: { type: 'string' } }) },
@@ -413,9 +440,24 @@
   }
 
   async function runTool(name, input, { agent, task, extraMap }) {
+    if (!allowedTool(agent, name, !!extraMap?.[name])) { const e = extraMap?.[name] ? EQUIPMENT.uplink : equipFor(name); return `Not available in this room: it needs a ${e?.label || 'different piece of equipment'} (${e?.what || name}). Tell the Commander to install it in Edit rooms, and continue with what you can do.`; }
     if (extraMap?.[name]) { event('info', agent.id, `Using ${extraMap[name]._conn.name}: ${extraMap[name]._tool}`); return callConnectorTool(extraMap[name], input); }
     input = input || {};
     switch (name) {
+      case 'ask_user': {
+        if (task.voice) return 'This is a voice chat: ask your question out loud in your answer instead.';
+        if ((task.asks || 0) >= 2) return 'You already asked twice. Make a sensible assumption, say what you assumed, and continue.';
+        const options = (Array.isArray(input.options) ? input.options : []).map((o) => String(o).trim().slice(0, 80)).filter(Boolean).slice(0, 4);
+        const question = String(input.question || '').trim().slice(0, 300) || 'Can you tell me more about what you want?';
+        task.ask = { question, options, at: now() }; task.asks = (task.asks || 0) + 1;
+        task.log.push({ ts: now(), msg: `❓ Asked you: ${question}` });
+        live[agent.id] = { ...live[agent.id], status: 'running', task: '❓ Waiting for your answer' };
+        event('info', agent.id, `${agent.name} needs your answer: ${question.slice(0, 90)}`); save();
+        const answer = await new Promise((res) => { askWaiters[task.id] = res; });
+        task.ask = null; task.log.push({ ts: now(), msg: `💬 You answered: ${answer}` });
+        live[agent.id] = { ...live[agent.id], task: 'Got your answer, back to work…' }; save();
+        return `The Commander answered: ${answer}`;
+      }
       case 'report_progress': { const pct = Math.max(0, Math.min(100, +input.percent || 0)); live[agent.id] = { ...live[agent.id], task: input.message, progress: pct }; task.log.push({ ts: now(), msg: String(input.message) }); event('info', agent.id, input.message); return 'ok'; }
       case 'remember': {
         const fact = String(input.fact || '').trim().slice(0, 1000); if (!fact) return 'Nothing to remember.';
@@ -448,20 +490,24 @@
       }
     }
   }
-  const toolDefs = () => [...CORE_TOOLS, ...PLUGINS.filter(pluginOn).map((p) => ({ name: p.name, description: `[${p.label}] ${p.description}`, parameters: p.parameters }))];
+  const toolDefs = (agent) => [...CORE_TOOLS, ...PLUGINS.filter(pluginOn).map((p) => ({ name: p.name, description: `[${p.label}] ${p.description}`, parameters: p.parameters }))].filter((t) => allowedTool(agent, t.name));
 
   /* ------------------------------------------------------- agent loop */
   const VOICE_RULES = 'This is a spoken conversation; your final answer is read aloud. Reply in 1–4 short natural sentences: no markdown, lists, tables, emojis or raw URLs. Put long details in a file and say so.';
   function systemPrompt(agent, provider) {
-    const web = provider === 'anthropic'
-      ? '- Use web_search and web_fetch for anything current or factual, and cite links.'
-      : '- You have no general web search here. Use the Wikipedia tool for facts, and say when something may be out of date.';
+    const eq = equipmentOf(agent), hasDish = allowedTool(agent, 'web_search');
+    const web = !hasDish ? '- Your room has no Radar dish, so you have no web access. Work from what you know and say when something may be out of date.'
+      : provider === 'anthropic'
+        ? '- Use web_search and web_fetch for anything current or factual, and cite links.'
+        : '- You have no general web search here. Use the Wikipedia tool for facts, and say when something may be out of date.';
+    const kit = eq && !agent.external ? `\n- Your room's equipment: ${eq.map((k) => EQUIPMENT[k]?.label).filter(Boolean).join(', ') || 'none'}. You can only use the tools that equipment provides. If the task needs equipment your room lacks (for example a Radar dish for web search, a Terminal for files), say which equipment the Commander should install, and do what you can.` : '';
     return `You are ${agent.name}, ${agent.role}, an AI agent in the user's Agent Station app.
 ${agent.instructions || ''}
 
 How you work:
 ${web}
-- Call report_progress when you start and at milestones; keep messages short.
+- Call report_progress when you start and at milestones; keep messages short.${kit}
+- If the request is unclear in a way that would change the result, call ask_user ONCE with 2-4 short options before starting. Otherwise do not ask: make sensible assumptions and state them.
 - Use the memories listed in the task. Save durable facts with remember (never secrets).
 - If a listed skill fits, call use_skill first. Save a skill when asked to learn something or after a task the user will repeat.
 - Put longer deliverables in a file with write_file and mention the filename.
@@ -492,14 +538,13 @@ ${web}
     AnthropicSDK ||= (await import('./vendor/anthropic-sdk.mjs')).default;
     const client = new AnthropicSDK({ apiKey: keys().anthropic, dangerouslyAllowBrowser: true }); // key stays on this phone
     const tools = [
-      { type: 'web_search_20260209', name: 'web_search', max_uses: 6 },
-      { type: 'web_fetch_20260209', name: 'web_fetch', max_uses: 6 },
-      ...CORE_TOOLS.map((t) => ({ name: t.name, description: t.description, input_schema: t.parameters, strict: true })),
-      ...PLUGINS.filter(pluginOn).map((p) => ({ name: p.name, description: p.description, input_schema: p.parameters, strict: true })),
+      ...(allowedTool(agent, 'web_search') ? [{ type: 'web_search_20260209', name: 'web_search', max_uses: 6 }, { type: 'web_fetch_20260209', name: 'web_fetch', max_uses: 6 }] : []),
+      ...CORE_TOOLS.filter((t) => allowedTool(agent, t.name)).map((t) => ({ name: t.name, description: t.description, input_schema: t.parameters, strict: true })),
+      ...PLUGINS.filter(pluginOn).filter((p) => allowedTool(agent, p.name)).map((p) => ({ name: p.name, description: p.description, input_schema: p.parameters, strict: true })),
     ];
     const fallback = /^claude-(opus-5-5|sonnet-5-5)/.test(model) ? { betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' } : {};
     // Work connectors: Anthropic connects to the MCP servers on its side, so every connector works here.
-    const conns = connectors().filter((c) => c.enabled);
+    const conns = allowedTool(agent, '', true) ? connectors().filter((c) => c.enabled) : [];
     const mcp = conns.length ? {
       mcp_servers: conns.map((c) => ({ type: 'url', url: c.url, name: connName(c), ...(c.token ? { authorization_token: c.token } : {}) })),
       betas: [...(fallback.betas || []), 'mcp-client-2025-11-20'],
@@ -568,11 +613,11 @@ ${web}
 
   // One tool-calling loop for every OpenAI-style brain: online providers and on-device models.
   async function runToolLoop(agent, task, modelId, chat, { maxTurns = 20, compact = false, provider = 'openai' } = {}) {
-    const extra = provider === 'device' ? [] : await connectorToolDefs(); // small on-device models get the core tools only
+    const extra = provider === 'device' || !allowedTool(agent, '', true) ? [] : await connectorToolDefs(); // small on-device models get the core tools only; connectors need a Connector uplink
     if (extra.length) task.log.push({ ts: now(), msg: `Connector tools ready: ${extra.length}` });
     const extraMap = Object.fromEntries(extra.map((d) => [d.name, d]));
     const ctxExtra = { extraMap };
-    const tools = [...toolDefs(), ...extra].map((t) => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.parameters } }));
+    const tools = [...toolDefs(agent), ...extra].map((t) => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.parameters } }));
     const messages = [{ role: 'system', content: systemPrompt(agent, provider) }, { role: 'user', content: preamble(agent, task.prompt, task.voice, compact) }];
     let final = '';
     for (let turn = 0; turn < maxTurns; turn++) {
@@ -839,7 +884,7 @@ You are running on a chat-only brain: you can't use tools, browse, save files or
       bridge: { enabled: !!bridgeCfg().enabled, hasToken: !!bridgeCfg().token, url: bridgeCfg().url || defaultBridgeUrl(), connected: bridge.connected, lastSync: bridge.lastSync, error: bridge.error, mcpUrl: `${(bridgeCfg().url || defaultBridgeUrl()).replace(/\/$/, '')}/mcp`, reports: (bridge.reports || []).slice(0, 5) },
       plugins: PLUGINS.map((p) => ({ name: p.name, label: p.label, icon: p.icon, description: p.description, enabled: pluginOn(p) })),
       voice: { stt: false }, clone: { available: false }, studio: { available: false, voices: [] }, voices: [],
-      stations: state.stations, approvals: state.approvals.slice(0, 100),
+      stations: state.stations, equipment: Object.fromEntries(Object.entries(EQUIPMENT).map(([k, e]) => [k, { label: e.label, icon: e.icon, what: e.what }])), approvals: state.approvals.slice(0, 100),
       agents: state.agents.map((a) => {
         const l = live[a.id] || {}, u = state.usage[a.id] || { tokens: 0, cost: 0 };
         const queued = state.tasks.filter((t) => t.agent === a.id && t.status === 'queued').length;
@@ -879,7 +924,16 @@ You are running on a chat-only brain: you can't use tools, browse, save files or
       save(); return it;
     }],
     ['DELETE', /^approvals\/(.+)$/, ([id]) => { state.approvals = state.approvals.filter((x) => x.id !== id); save(); return { ok: true }; }],
-    ['POST', /^stations$/, (_, b) => { const name = String(b.name || '').trim().slice(0, 30); if (!name) throw httpError('A room needs a name'); let id = slug(name) || 'room'; if (state.stations.some((x) => x.id === id)) id += '-' + Math.random().toString(36).slice(2, 5); const st = { id, name, region: 'custom', custom: true }; state.stations.push(st); save(); return st; }],
+    ['POST', /^stations$/, (_, b) => { const name = String(b.name || '').trim().slice(0, 30); if (!name) throw httpError('A room needs a name'); let id = slug(name) || 'room'; if (state.stations.some((x) => x.id === id)) id += '-' + Math.random().toString(36).slice(2, 5); const st = { id, name, region: 'custom', custom: true, equipment: ['console', 'shelf'] }; state.stations.push(st); save(); return st; }],
+    ['PATCH', /^stations\/(.+)$/, ([id], b) => {
+      const st = state.stations.find((x) => x.id === id); if (!st) throw httpError('No such room');
+      if (Array.isArray(b.equipment)) st.equipment = [...new Set(b.equipment.filter((k) => EQUIPMENT[k]))];
+      event('info', null, `${st.name} equipment: ${(st.equipment || []).map((k) => EQUIPMENT[k].label).join(', ') || 'none'}`); save(); return st;
+    }],
+    ['POST', /^tasks\/([^/]+)\/answer$/, ([id], b) => {
+      const w = askWaiters[id]; if (!w) throw httpError('That question is no longer waiting');
+      delete askWaiters[id]; w(String(b.answer || '').trim().slice(0, 500) || '(no answer, use your best judgement)'); return { ok: true };
+    }],
     ['DELETE', /^stations\/(.+)$/, ([id]) => { const st = state.stations.find((x) => x.id === id); if (!st || !st.custom) throw httpError('Only rooms you built can be removed'); if (state.agents.some((a) => a.station === id)) throw httpError('Move the agents out of this room first'); state.stations = state.stations.filter((x) => x.id !== id); save(); return { ok: true }; }],
     ['POST', /^workflows$/, (_, b) => {
       const steps = (b.steps || []).filter((s) => agentById(s.agent) && s.instructions);

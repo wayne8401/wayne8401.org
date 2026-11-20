@@ -56,7 +56,7 @@
       const w = Math.max(16, 6 + 5 * Math.min(Math.max(crew, 1), 4)) * T;
       const k = kindOf(st);
       const floor = k === 'studio' ? 'wood' : k === 'ops' ? 'grate' : k === 'research' ? 'metal' : FLOORS[hash(st.id) % FLOORS.length];
-      (i % 2 ? rows.top : rows.bottom).push({ id: st.id, name: st.name.toUpperCase(), region: (st.region || '').toUpperCase(), kind: k, floor, w, custom: st.custom });
+      (i % 2 ? rows.top : rows.bottom).push({ id: st.id, name: st.name.toUpperCase(), region: (st.region || '').toUpperCase(), kind: k, floor, w, custom: st.custom, equipment: Array.isArray(st.equipment) ? st.equipment : null });
     });
     const corrY = ROOM_H + 2 * T;
     const startX = 12 * T;
@@ -74,7 +74,7 @@
     const corrX = 8 * T, corrW = Math.max(endTop, endBottom) - corrX + 4 * T;
     // storage bays capping both ends of the corridor
     rooms.push({ id: '__bayL', name: 'STORAGE', deco: 'storage', floor: 'grate', x: corrX - 9 * T, y: corrY - 3 * T, w: 9 * T, h: 10 * T, side: 'left' });
-    rooms.push({ id: '__bayR', name: 'DOCK', deco: 'storage', floor: 'steel', x: corrX + corrW, y: corrY - 3 * T, w: 9 * T, h: 10 * T, side: 'right' });
+    rooms.push({ id: '__outbox', name: 'OUTBOX', deco: 'storage', outbox: true, floor: 'steel', x: corrX + corrW, y: corrY - 3 * T, w: 9 * T, h: 10 * T, side: 'right' });
     for (const r of rooms) furnish(r, d);
     const minX = corrX - 9 * T - 4 * T, maxX = corrX + corrW + 9 * T + 4 * T;
     return { rooms, corr: { x: corrX, y: corrY, w: corrW, h: CORR_H }, bounds: { x: minX, y: -2 * T, w: maxX - minX, h: corrY + CORR_H + ROOM_H + 4 * T } };
@@ -91,7 +91,7 @@
       return;
     }
     if (r.deco === 'storage') {
-      for (let i = 0; i < 4; i++) r.items.push({ t: 'crate', x: r.x + 1.5 * T + (i % 2) * 2.4 * T, y: r.y + 2 * T + Math.floor(i / 2) * 2.4 * T });
+      if (!r.outbox) for (let i = 0; i < 4; i++) r.items.push({ t: 'crate', x: r.x + 1.5 * T + (i % 2) * 2.4 * T, y: r.y + 2 * T + Math.floor(i / 2) * 2.4 * T });
       r.items.push({ t: 'console', x: r.x + 2 * T, y: r.y + 7 * T });
       return;
     }
@@ -99,7 +99,9 @@
     const back = r.top ? r.y + 2.3 * T : r.y + r.h - 3.8 * T; // wall away from the corridor
     const deskY = r.y + (r.top ? 5.2 * T : 4.6 * T);
     const lineY = r.top ? r.y + r.h - 4.2 * T : r.y + 9.4 * T;
-    const props = { research: ['dish', 'console', 'dish'], studio: ['ring', 'shelf', 'plant'], ops: ['board', 'console', 'crate'], other: ['console', 'plant', 'crate'] }[r.kind] || ['console'];
+    const EQ_PROP = { dish: 'dish', console: 'console', shelf: 'shelf', board: 'board', ring: 'ring', uplink: 'uplink' };
+    const props = r.equipment ? (r.equipment.map((k) => EQ_PROP[k]).filter(Boolean).length ? r.equipment.map((k) => EQ_PROP[k]).filter(Boolean) : ['crate'])
+      : ({ research: ['dish', 'console', 'dish'], studio: ['ring', 'shelf', 'plant'], ops: ['board', 'console', 'crate'], other: ['console', 'plant', 'crate'] }[r.kind] || ['console']);
     props.forEach((t, i) => r.items.push({ t, x: ix + T + i * Math.max(3 * T, (iw - 4 * T) / Math.max(1, props.length - 1)), y: back }));
     r.items.push({ t: 'plant', x: r.x + r.w - 2.6 * T, y: back + (r.top ? 0 : -T) });
     const crew = d.agents.filter((a) => a.station === r.id).slice(0, 4);
@@ -243,6 +245,12 @@
       c.fillStyle = '#0b1022'; c.fillRect(x + 12, y + 6, 8, 12); c.fillStyle = '#38e8ff'; c.fillRect(x + 13, y + 8, 6, 8);
       c.strokeStyle = '#8a93a6'; c.lineWidth = 1.5; c.beginPath(); c.moveTo(x + 16, y + 24); c.lineTo(x + 16, y + 34); c.moveTo(x + 16, y + 28); c.lineTo(x + 9, y + 34); c.moveTo(x + 16, y + 28); c.lineTo(x + 23, y + 34); c.stroke();
     },
+    uplink(c, x, y) {
+      c.fillStyle = 'rgba(0,0,0,.4)'; c.beginPath(); c.ellipse(x + 10, y + 30, 11, 4, 0, 0, 7); c.fill();
+      c.fillStyle = '#4a5163'; c.fillRect(x + 4, y + 24, 12, 6); c.strokeStyle = '#8a93a6'; c.lineWidth = 2;
+      c.beginPath(); c.moveTo(x + 10, y + 24); c.lineTo(x + 10, y + 2); c.moveTo(x + 4, y + 10); c.lineTo(x + 16, y + 10); c.moveTo(x + 6, y + 17); c.lineTo(x + 14, y + 17); c.stroke();
+      c.fillStyle = '#38e8ff'; c.fillRect(x + 8, y, 4, 4);
+    },
     machine(c, x, y) {
       c.fillStyle = 'rgba(0,0,0,.4)'; c.fillRect(x - 2, y + 4, 4.2 * T + 4, 2.4 * T);
       c.fillStyle = '#5c6478'; c.fillRect(x, y, 4.2 * T, 2.2 * T); c.fillStyle = '#6e7790'; c.fillRect(x, y, 4.2 * T, 5);
@@ -368,6 +376,13 @@
     const d = data;
     // per-room live bits: monitors, belts, boxes, labels
     for (const r of world.rooms) {
+      if (r.outbox) {
+        const n = (d.files || []).length, fresh = d.outboxNew || 0;
+        for (let i = 0; i < Math.min(n, 6); i++) { const cx = r.x + 1.4 * T + (i % 3) * 2.1 * T, cy = r.y + 2.6 * T + Math.floor(i / 3) * 2.2 * T; ITEM.crate(ctx, cx, cy); if (i < fresh) { ctx.fillStyle = Math.sin(t * 5 + i) > 0 ? '#4dffa6' : '#1f6b47'; ctx.fillRect(cx + 2, cy + 2, 4, 4); } }
+        label(ctx, `OUTBOX · ${n}`, r.x + 1.4 * T, r.y + 1.1 * T, { color: '#ffd9a8', bg: 'rgba(30,20,10,.85)', border: '#8a6a3e', size: 7 });
+        if (fresh) label(ctx, `${fresh} NEW`, r.x + 1.4 * T, r.y + r.h - 1.6 * T, { color: '#8affc1', size: 7 });
+        continue;
+      }
       if (r.deco) { label(ctx, r.name, r.x + 2 * T, r.y + 1.7 * T, { color: '#cfd6e4', bg: 'rgba(12,14,20,.75)', border: '#3a3f4c', size: 7 }); continue; }
       const crew = d.agents.filter((a) => a.station === r.id), ids = new Set(crew.map((a) => a.id));
       const busy = crew.some((a) => a.status === 'running');
@@ -432,7 +447,12 @@
     c.restore();
     if (!w.npc) {
       hits.push({ id: w.id, x: w.x, y: w.y - sz / 2, r: sz * .6 });
-      if (w.sitting && w.agent?.status === 'running') { // typing dots
+      const asking = data?.tasks?.some((x) => x.agent === w.id && x.status === 'running' && x.ask);
+      if (asking) {
+        const by = w.y - sz - 14 - Math.abs(Math.sin(t * 3)) * 2;
+        c.fillStyle = '#ffc85a'; c.beginPath(); c.arc(w.x, by, 7, 0, 7); c.fill(); c.fillStyle = '#1a1c22';
+        c.font = '800 10px ui-monospace, Menlo, monospace'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText('?', w.x, by + .5); c.textAlign = 'left';
+      } else if (w.sitting && w.agent?.status === 'running') { // typing dots
         for (let i = 0; i < 3; i++) { c.fillStyle = `rgba(138,255,193,${.35 + .65 * ((Math.floor(t * 4) + i) % 3 === 0)})`; c.fillRect(w.x - 6 + i * 5, w.y - sz - 6, 3, 3); }
       }
     }
@@ -489,6 +509,7 @@
         const p = toWorld(pos(e).x, pos(e).y);
         const h = hits.slice().reverse().find((h) => Math.hypot(h.x - p.x, h.y - p.y) < h.r + 4);
         if (h) handlers.onAgent?.(h.id);
+        else { const ob = world.rooms.find((r) => r.outbox && p.x > r.x && p.x < r.x + r.w && p.y > r.y && p.y < r.y + r.h); if (ob) handlers.onOutbox?.(); }
       }
       pts.delete(e.pointerId); if (pts.size < 2) pinch = 0;
     };
@@ -499,7 +520,7 @@
 
   /* ------------------------------------------------------------ public API */
   function layoutKey(d) {
-    return JSON.stringify([d.stations.map((s) => [s.id, s.name, s.region]), d.agents.map((a) => [a.id, a.station])]);
+    return JSON.stringify([d.stations.map((s) => [s.id, s.name, s.region, s.equipment]), d.agents.map((a) => [a.id, a.station])]);
   }
   function setData(d) {
     data = d;

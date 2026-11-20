@@ -349,6 +349,7 @@
     if (Math.abs(dx) > .5) b.dir = dx > 0 ? 1 : -1;
     if (dist <= sp) { b.x = t.x; b.y = t.y; b.path.shift(); const r = world.rooms.find((r) => b.x > r.x && b.x < r.x + r.w && b.y > r.y && b.y < r.y + r.h); if (r) b.room = r.id; }
     else { b.x += dx / dist * sp; b.y += dy / dist * sp; }
+    b.phase = (b.phase || 0) + sp / 4.2; // steps follow the distance walked, so feet don't slide
     b.moving = dist > sp;
   }
 
@@ -439,14 +440,16 @@
   }
   const hits = [];
   function drawWalker(c, w, t) {
-    const sz = w.npc ? 16 : w.commander ? 30 : 26, bob = w.moving ? Math.abs(Math.sin(t * 10 + w.x * .1)) * 2 : w.sitting ? 0 : Math.sin(t * 2 + w.y) * .4;
+    const sz = w.npc ? 18 : w.commander ? 40 : 35, bob = 0;
+    const frame = w.moving ? Math.floor(w.phase || 0) % 4 : w.sitting ? 'sit' : 'stand';
+    const breathe = w.moving ? 1 : 1 + Math.sin(t * 2.2 + (w.x + w.y) * .05) * .014;
     c.fillStyle = 'rgba(0,0,0,.4)'; c.beginPath(); c.ellipse(w.x, w.y, sz * .32, sz * .12, 0, 0, 7); c.fill();
     let img = null;
-    if (w.commander) img = spriteImg(handlers.commanderSprite?.());
-    else if (w.npc) img = spriteImg(handlers.sprite?.({ id: 'npc', look: NPC_LOOK }));
-    else img = spriteImg(handlers.sprite?.(w.agent));
+    if (w.commander) img = spriteImg(handlers.commanderSprite?.(frame));
+    else if (w.npc) img = spriteImg(handlers.sprite?.({ id: 'npc', look: NPC_LOOK }, frame));
+    else img = spriteImg(handlers.sprite?.(w.agent, frame));
     c.save(); c.translate(w.x, w.y - bob); if (w.dir < 0) c.scale(-1, 1);
-    if (img) c.drawImage(img, -sz / 2, -sz, sz, sz);
+    if (img) c.drawImage(img, -sz / 2, -sz * breathe, sz, sz * breathe);
     else { c.fillStyle = '#d9dde6'; c.fillRect(-4, -sz * .8, 8, sz * .8); c.beginPath(); c.arc(0, -sz * .85, 4, 0, 7); c.fill(); }
     c.restore();
     if (w.commander) { label(c, 'COMMANDER', w.x, w.y - sz - 12, { color: '#ffe3a3', bg: 'rgba(40,28,6,.88)', border: '#b8892a', size: 6, align: 'center' }); hits.push({ commander: true, x: w.x, y: w.y - sz / 2, r: sz * .6 }); return; }

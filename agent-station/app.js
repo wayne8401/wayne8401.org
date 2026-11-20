@@ -1125,8 +1125,8 @@
       onAgent: (id) => ACTIONS.agent(id),
       onOutbox: () => ACTIONS.outbox(),
       onCommander: () => toast('That\'s you, Commander 🫡 Your crew is on it.'),
-      commanderSprite: () => window.AgentStationCommander?.svg({ full: true, bare: true }),
-      sprite: (a) => { const look = a.id === 'npc' ? a.look : lookOf(a); return look ? CH.avatarSvg(look, '', { full: true, bare: true }) : null; },
+      commanderSprite: (frame) => window.AgentStationCommander?.svg({ full: true, bare: true, frame }),
+      sprite: (a, frame) => { const look = a.id === 'npc' ? a.look : lookOf(a); return look ? CH.avatarSvg(look, '', { full: true, bare: true, frame }) : null; },
     });
     V.setData({ stations: S.stations || [], agents: S.agents || [], tasks: S.tasks || [], workflows: S.workflows || [], files: S.files || [], outboxNew: (S.files || []).filter((f) => f.updatedAt > outboxSeen()).length });
   }

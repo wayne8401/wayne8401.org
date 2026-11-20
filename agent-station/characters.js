@@ -14,9 +14,24 @@
   const INK = '#0b1022';
 
   // Draws an avatar from a small spec. viewBox 64x64.
+  /* 3D look: every body-coloured shape gets a copy painted with one shared radial gradient (light from
+     the top-left, shadow toward the bottom-right), so heads read as round and limbs as cylinders. The
+     gradient is identical in every SVG, so its shared id is safe when many avatars are on one page. */
+  const DEFS3D = '<defs><radialGradient id="as3d" cx=".36" cy=".3" r=".78"><stop offset="0" stop-color="#fff" stop-opacity=".55"/><stop offset=".32" stop-color="#fff" stop-opacity=".1"/><stop offset=".68" stop-color="#000" stop-opacity=".04"/><stop offset="1" stop-color="#000" stop-opacity=".52"/></radialGradient></defs>';
+  function shade3d(str, colors) {
+    for (const col of colors) {
+      if (!/^#[0-9a-fA-F]{3,8}$/.test(col || '')) continue;
+      const re = new RegExp(`<(rect|circle|ellipse|path)\\b[^>]*fill="${col}"[^>]*/>`, 'g');
+      str = str.replace(re, (m) => m + m.replace(`fill="${col}"`, 'fill="url(#as3d)"').replace(/ opacity="[^"]*"/, '').replace(/ class="[^"]*"/, ''));
+    }
+    return str;
+  }
+  /* Walk cycle poses: l/r lift a leg, a swings the arms, b lifts the upper body at the passing pose. */
+  const POSE = { stand: { l: 0, r: 0, a: 0, b: 0 }, 0: { l: -2.4, r: 0, a: 1, b: 0 }, 1: { l: -.7, r: -.7, a: 0, b: -.9 }, 2: { l: 0, r: -2.4, a: -1, b: 0 }, 3: { l: -.7, r: -.7, a: 0, b: -.9 }, sit: { l: -3.6, r: -3.6, a: 0, b: .4, sit: true } };
+
   // Draws an avatar from a small spec, viewBox 64x64. By default it's a small full-bodied robot;
   // { full: false } draws just the head (for tiny icons).
-  function avatarSvg(c, label = '', { full = true, bare = false, mode = 'robot' } = {}) {
+  function avatarSvg(c, label = '', { full = true, bare = false, mode = 'robot', frame = 'stand' } = {}) {
     if (c.kind === 'human') return humanAvatar(c, label, { full, bare });
     if (mode === 'vehicle' && (c.body === 'vehicle' || c.body === 'jet')) return vehicleSvg(c, label, bare);
     const { bg, fg, shape = 'round', eyes = 'dot', mouth = 'smile', top = 'none', body = 'none', cheeks = false, accent = '#ffffff' } = c;
@@ -100,9 +115,11 @@
     };
     face.push(`<g class="p-mouth">${mouths[mouth] ?? mouths.smile}</g>`); // p-mouth moves while speaking
     parts.push(G('face', face.join('')));
-    const open = `<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="${label}">${bare ? '' : `<rect width="64" height="64" rx="18" fill="${bg}"/>`}`;
-    if (!full) return `${open}${parts.join('')}</svg>`;
-    return `${open}${robotFrame(fg, accent, body)}<g transform="translate(14.5 -1.5) scale(.55)"><g class="p-sway">${parts.join('')}</g></g></svg>`;
+    const open = `<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="${label}">${DEFS3D}${bare ? '' : `<rect width="64" height="64" rx="18" fill="${bg}"/>`}`;
+    const headArt = shade3d(parts.join(''), [fg]) + `<ellipse cx="25" cy="24" rx="5.5" ry="2.6" fill="#fff" opacity=".22" transform="rotate(-28 25 24)"/>`;
+    if (!full) return `${open}${headArt}</svg>`;
+    const pose = POSE[frame] || POSE.stand;
+    return `${open}${bare ? '' : '<ellipse cx="32" cy="60.6" rx="12" ry="2" fill="#000" opacity=".28"/>'}${robotFrame(fg, accent, body, pose)}<g transform="translate(14.5 ${(-1.5 + pose.b).toFixed(2)}) scale(.55)"><g class="p-sway">${headArt}</g></g></svg>`;
   }
 
 
@@ -158,9 +175,9 @@
       + (cheeks ? `<circle cx="19" cy="45" r="3.2" fill="#ff8fb1" opacity=".6"/><circle cx="45" cy="45" r="3.2" fill="#ff8fb1" opacity=".6"/>` : '')
       + `<g class="p-mouth">${mouths[c.mouth] || mouths.smile}</g>`;
     const head = [G('top', back), G('head', ears + (heads[face] || heads.round)), G('face', faceSvg), G('top', front)].join('');
-    const open = `<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="${label}">${bare ? '' : `<rect width="64" height="64" rx="18" fill="${bg}"/>`}`;
-    if (!full) return `${open}<path d="M5 64 Q7 51 22 49 L42 49 Q57 51 59 64 Z" fill="${fg}"/><rect x="27" y="48" width="10" height="9" fill="${skin}"/><path d="M27 49 L32 55 L37 49 Z" fill="${INK}" opacity=".18"/>${head}</svg>`;
-    return `${open}${humanFrame(skin, fg, accent)}<g transform="translate(14.5 -1.5) scale(.55)"><g class="p-sway">${head}</g></g></svg>`;
+    const open = `<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="${label}">${DEFS3D}${bare ? '' : `<rect width="64" height="64" rx="18" fill="${bg}"/>`}`;
+    if (!full) return `${open}${shade3d(`<path d="M5 64 Q7 51 22 49 L42 49 Q57 51 59 64 Z" fill="${fg}"/><rect x="27" y="48" width="10" height="9" fill="${skin}"/><path d="M27 49 L32 55 L37 49 Z" fill="${INK}" opacity=".18"/>${head}`, [skin, fg])}</svg>`;
+    return `${open}${bare ? '' : '<ellipse cx="32" cy="60.6" rx="12" ry="2" fill="#000" opacity=".28"/>'}${shade3d(humanFrame(skin, fg, accent), [skin, fg])}<g transform="translate(14.5 -1.5) scale(.55)"><g class="p-sway">${shade3d(head, [skin])}</g></g></svg>`;
   }
 
   // A person's body under the head: legs, arms, shirt (same layout as robotFrame, so the same animations work).
@@ -201,24 +218,28 @@
   }
 
   // The small robot body under the head: legs, arms, torso, plus the chosen armor or vehicle kit.
-  function robotFrame(fg, accent, body) {
+  function robotFrame(fg, accent, body, pose = POSE.stand) {
     const shade = (svg) => `<g opacity=".22" fill="${INK}">${svg}</g>`;
     const back = {
       wings: `<path d="M22 33 L3 19 L7 43 Z" fill="${fg}" opacity=".8"/><path d="M42 33 L61 19 L57 43 Z" fill="${fg}" opacity=".8"/><path d="M8 26 L18 35 M56 26 L46 35" stroke="${accent}" stroke-width="1.6"/>`,
       jet: `<path d="M24 35 L1 45 L4 50 L24 43 Z" fill="${fg}"/><path d="M40 35 L63 45 L60 50 L40 43 Z" fill="${fg}"/><path d="M21 32 L15 17 L24 29 Z" fill="${fg}"/><path d="M43 32 L49 17 L40 29 Z" fill="${fg}"/><path d="M4 47 L14 44 M60 47 L50 44" stroke="${accent}" stroke-width="1.6"/>`,
       vehicle: `<circle cx="12.5" cy="33" r="5" fill="${INK}"/><circle cx="12.5" cy="33" r="2" fill="${accent}"/><circle cx="51.5" cy="33" r="5" fill="${INK}"/><circle cx="51.5" cy="33" r="2" fill="${accent}"/>`,
     }[body] || '';
-    const frame = `
-      <rect x="23" y="46" width="7" height="11" rx="2.5" fill="${fg}"/><rect x="34" y="46" width="7" height="11" rx="2.5" fill="${fg}"/>
-      ${shade('<rect x="23" y="51" width="7" height="1.6"/><rect x="34" y="51" width="7" height="1.6"/>')}
-      <rect x="20.5" y="55.5" width="11" height="4.5" rx="2.2" fill="${fg}"/><rect x="32.5" y="55.5" width="11" height="4.5" rx="2.2" fill="${fg}"/>
-      ${shade('<rect x="20.5" y="58" width="11" height="2" rx="1"/><rect x="32.5" y="58" width="11" height="2" rx="1"/>')}
-      <g class="p-arm-l"><rect x="13.5" y="33" width="6.5" height="13" rx="3.2" fill="${fg}"/>${shade('<rect x="13.5" y="39" width="6.5" height="7" rx="3"/>')}<circle cx="16.8" cy="47.6" r="2.7" fill="${fg}"/></g>
-      <g class="p-arm-r"><rect x="44" y="33" width="6.5" height="13" rx="3.2" fill="${fg}"/>${shade('<rect x="44" y="39" width="6.5" height="7" rx="3"/>')}<circle cx="47.2" cy="47.6" r="2.7" fill="${fg}"/></g>
+    const leg = (x, fx, lift) => `<g transform="translate(${lift < -1.5 ? 1.1 : 0} ${lift})">
+      <rect x="${x}" y="46" width="7" height="11" rx="3.2" fill="${fg}"/>${shade(`<rect x="${x}" y="51" width="7" height="1.6"/>`)}
+      <rect x="${fx}" y="55.5" width="11" height="4.6" rx="2.3" fill="${fg}"/>${shade(`<rect x="${fx}" y="58" width="11" height="2.1" rx="1"/>`)}</g>`;
+    const arm = (side, x, hx, swing) => `<g transform="translate(0 ${(swing * 1.3).toFixed(2)}) rotate(${(swing * 7).toFixed(1)} ${x + 3.25} 33)"><g class="p-arm-${side}"><rect x="${x}" y="33" width="6.5" height="13" rx="3.25" fill="${fg}"/>${shade(`<rect x="${x}" y="39" width="6.5" height="7" rx="3"/>`)}<circle cx="${hx}" cy="47.6" r="2.8" fill="${fg}"/></g></g>`;
+    const typing = pose.sit ? -1 : 0;
+    const legs = pose.sit ? `${leg(23, 21.5, pose.l)}${leg(34, 31.5, pose.r)}` : `${leg(23, 20.5, pose.l)}${leg(34, 32.5, pose.r)}`;
+    const upper = `
+      ${arm('l', 13.5, 16.8, pose.a || typing)}${arm('r', 44, 47.2, -(pose.a || 0) || typing)}
       <rect x="28.5" y="28" width="7" height="5" fill="${INK}" opacity=".45"/>
-      <rect x="20" y="31" width="24" height="17" rx="5" fill="${fg}"/>
-      <rect x="24" y="35" width="16" height="9" rx="2.5" fill="${INK}" opacity=".5"/><circle cx="32" cy="39.5" r="2.6" fill="${accent}"/>
-      ${shade('<rect x="24" y="46" width="16" height="2.4" rx="1"/>')}`;
+      <rect x="20" y="31" width="24" height="17" rx="6" fill="${fg}"/>
+      <rect x="24" y="35" width="16" height="9" rx="2.5" fill="${INK}" opacity=".5"/>
+      <circle cx="32" cy="39.5" r="4.6" fill="${accent}" opacity=".25"/><circle cx="32" cy="39.5" r="2.6" fill="${accent}"/><circle cx="31.2" cy="38.7" r=".9" fill="#fff" opacity=".7"/>
+      ${shade('<rect x="24" y="46" width="16" height="2.4" rx="1"/>')}
+      <ellipse cx="32" cy="31.6" rx="9" ry="1.6" fill="${INK}" opacity=".3"/>`;
+    const frame = { legs, upper };
     const front = {
       shoulders: `<path d="M10.5 37 Q10.5 30 18 30 L23.5 31 L22 38 Z" fill="${fg}"/><path d="M53.5 37 Q53.5 30 46 30 L40.5 31 L42 38 Z" fill="${fg}"/>${shade('<path d="M10.5 37 L22 38 L22.3 36 L11 35.2 Z"/><path d="M53.5 37 L42 38 L41.7 36 L53 35.2 Z"/>')}<rect x="13" y="32.5" width="6" height="1.8" rx=".9" fill="${accent}"/><rect x="45" y="32.5" width="6" height="1.8" rx=".9" fill="${accent}"/>`,
       chassis: `<path d="M18.5 31 L45.5 31 L43 45 L21 45 Z" fill="${fg}"/><path d="M24 34 L40 34 L38.4 42 L25.6 42 Z" fill="${INK}" opacity=".55"/><path d="M27 36.5 L37 36.5 M27.5 39.5 L36.5 39.5" stroke="${accent}" stroke-width="1.4"/>`,
@@ -226,7 +247,7 @@
       jet: `<path d="M26 36 L32 41 L38 36" stroke="${accent}" stroke-width="2" fill="none" stroke-linejoin="round"/><path d="M26 39.5 L32 44.5 L38 39.5" stroke="${accent}" stroke-width="2" fill="none" stroke-linejoin="round" opacity=".6"/>`,
       wings: '',
     }[body] || '';
-    return `<g class="p-body">${back}${frame}${front}</g>`;
+    return `<g class="p-body">${shade3d(back, [fg])}${shade3d(frame.legs, [fg])}<g transform="translate(0 ${pose.b})">${shade3d(frame.upper, [fg])}${shade3d(front, [fg])}</g></g>`;
   }
 
   // Looks for the three starter agents.
@@ -388,5 +409,5 @@
     return out;
   }
 
-  window.AgentStationCharacters = { CHARACTERS, LOOKS, OPTIONS, ROBOT, HUMAN, PRESETS, avatarSvg, cleanLook, byId: (id) => CHARACTERS.find((c) => c.id === id) };
+  window.AgentStationCharacters = { CHARACTERS, LOOKS, OPTIONS, ROBOT, HUMAN, PRESETS, avatarSvg, cleanLook, shade3d, DEFS3D, POSE, byId: (id) => CHARACTERS.find((c) => c.id === id) };
 })();

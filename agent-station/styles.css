@@ -405,7 +405,7 @@ input[type=range] { padding: 0; accent-color: var(--cyan); background: none; bor
 .desk.s-idle .say { color: var(--muted); background: rgba(255,255,255,.04); }
 .desk.s-running .say { background: rgba(77,255,166,.14); color: #c8ffe3; }
 .worker { position: relative; margin-top: 8px; }
-.desk.s-running .worker { animation: bob 1.2s ease-in-out infinite; }
+.desk.s-running .worker { animation: none; } /* no bouncing: robots breathe and type instead */
 .lamp { position: absolute; right: -3px; top: -3px; width: 11px; height: 11px; border-radius: 50%; border: 2px solid #0b1022; background: var(--muted); }
 .desk.s-running .lamp { background: var(--green); box-shadow: 0 0 8px var(--green); }
 .desk.s-waiting .lamp { background: var(--amber); }
@@ -567,7 +567,7 @@ details.history[open] > summary h2::after { transform: rotate(90deg); }
 .avatar.alive svg g { transform-box: fill-box; }
 .avatar.alive .p-eyes { transform-origin: 50% 50%; animation: ast-blink 4.6s ease-in-out infinite; }
 .avatar.alive .p-sway { transform-origin: 50% 100%; animation: ast-sway 6s ease-in-out infinite; }
-.avatar.alive .p-body { transform-origin: 50% 100%; animation: ast-breathe 4s ease-in-out infinite; }
+.avatar.alive .p-body { transform-origin: 50% 100%; animation: ast-breathe 4.4s ease-in-out infinite; }
 .avatar.alive.speaking .p-mouth { transform-origin: 50% 30%; animation: ast-talk .26s ease-in-out infinite alternate; }
 .desk.s-running .avatar.alive .p-arm-l { transform-origin: 50% 0; animation: ast-type-l .3s ease-in-out infinite alternate; }
 .desk.s-running .avatar.alive .p-arm-r { transform-origin: 50% 0; animation: ast-type-r .3s -.15s ease-in-out infinite alternate; }

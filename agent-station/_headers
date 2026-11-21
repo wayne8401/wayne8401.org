@@ -1,0 +1,5 @@
+# Netlify / Cloudflare Pages headers.
+# Cross-origin isolation lets the on-device model use every CPU core (multi-threaded WebAssembly).
+/*
+  Cross-Origin-Opener-Policy: same-origin
+  Cross-Origin-Embedder-Policy: credentialless

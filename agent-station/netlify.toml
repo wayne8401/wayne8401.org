@@ -1,0 +1,8 @@
+# Netlify settings for Agent Station (base directory: agent-station).
+[build]
+  publish = "."
+  functions = "netlify/functions"
+
+[functions]
+  node_bundler = "esbuild"
+  included_files = ["bridge/**"]

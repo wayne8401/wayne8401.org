@@ -1,0 +1,20 @@
+{
+  "name": "Space Agency",
+  "short_name": "Space Agency",
+  "id": "space-agency",
+  "description": "Space Agency: your AI agents at work in a city you build.",
+  "start_url": "./space-agency.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "landscape",
+  "background_color": "#05070f",
+  "theme_color": "#05070f",
+  "icons": [
+    {
+      "src": "space-agency-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

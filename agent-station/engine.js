@@ -554,6 +554,7 @@ ${web}
     const messages = [{ role: 'user', content: preamble(agent, task.prompt, task.voice) }];
     let final = '';
     for (let turn = 0; turn < 25; turn++) {
+      if (task.stopped) throw new Error('Stopped by you.');
       const r = await client.beta.messages.create({ model, max_tokens: 16000, system: [{ type: 'text', text: systemPrompt(agent, 'anthropic'), cache_control: { type: 'ephemeral' } }], output_config: { effort: 'medium' }, ...fallback, ...mcp, tools, messages });
       addUsage(agent, task, r.usage, modelId);
       const text = r.content.filter((b) => b.type === 'text').map((b) => b.text).join('\n').trim(); if (text) final = text;
@@ -621,6 +622,7 @@ ${web}
     const messages = [{ role: 'system', content: systemPrompt(agent, provider) }, { role: 'user', content: preamble(agent, task.prompt, task.voice, compact) }];
     let final = '';
     for (let turn = 0; turn < maxTurns; turn++) {
+      if (task.stopped) throw new Error('Stopped by you.');
       const r = await chat(messages, tools);
       addUsage(agent, task, r.usage, modelId);
       const m = r.choices?.[0]?.message || {};
@@ -715,9 +717,9 @@ You are running on a chat-only brain: you can't use tools, browse, save files or
   /* ------------------------------------------------------------ phone <-> PC link (private, through your own bridge) */
   const DEVICE = (() => { try { let d = localStorage.getItem('as.device'); if (!d) { d = 'dev_' + Math.random().toString(36).slice(2, 10); localStorage.setItem('as.device', d); } return d; } catch { return 'dev_mem'; } })();
   const DEVICE_NAME = /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent || '') ? 'phone' : 'PC';
-  const SHARED = ['stations', 'agents', 'workflows', 'tasks', 'skills', 'memories', 'files', 'approvals'];
+  const SHARED = ['stations', 'agents', 'workflows', 'tasks', 'skills', 'memories', 'files', 'approvals', 'deleted'];
   const linkInfo = { at: 0, error: '' };
-  const stamp = (x) => Math.max(+x?.updatedAt || 0, +x?.finishedAt || 0, +x?.createdAt || 0);
+  const stamp = (x) => Math.max(+x?.updatedAt || 0, +x?.finishedAt || 0, +x?.createdAt || 0, +x?.at || 0);
   const settled = (x) => (x?.status === 'done' || x?.status === 'error' ? 1 : 0);
   function mergeList(a = [], b = []) {
     const out = new Map(); for (const x of a) if (x && x.id != null) out.set(x.id, x);
@@ -730,6 +732,7 @@ You are running on a chat-only brain: you can't use tools, browse, save files or
       if (k === 'files') { m.files = { ...(remote.files || {}) }; for (const [n, f] of Object.entries(local.files || {})) if (!m.files[n] || (f.updatedAt || 0) > (m.files[n].updatedAt || 0)) m.files[n] = f; }
       else m[k] = mergeList(local[k], remote[k]);
     }
+    const gone = new Set((m.deleted || []).map((x) => x.id)); m.tasks = m.tasks.filter((t) => !gone.has(t.id));
     return m;
   }
   const sharedOf = () => Object.fromEntries(SHARED.map((k) => [k, state[k]]));
@@ -845,7 +848,18 @@ You are running on a chat-only brain: you can't use tools, browse, save files or
     queues[agent.id] = done.catch(() => {});
     save(); return task;
   }
+  const stops = {};
+  function stopTask(t) {
+    if (t.status !== 'running' && t.status !== 'queued') return false;
+    t.stopped = true;
+    if (askWaiters[t.id]) { const w = askWaiters[t.id]; delete askWaiters[t.id]; w('(stopped)'); }
+    if (bridge.waiters[t.id]) { const w = bridge.waiters[t.id]; delete bridge.waiters[t.id]; w({ status: 'error', result: 'Stopped by you.' }); }
+    if (stops[t.id]) stops[t.id](new Error('Stopped by you.'));
+    if (t.status === 'queued') { Object.assign(t, { status: 'error', result: 'Stopped by you before it started.', finishedAt: now() }); }
+    event('warn', t.agent, `Stopped: ${(t.title || t.prompt).slice(0, 60)}`); save(); return true;
+  }
   async function execute(agent, task) {
+    if (task.stopped) return task;
     if (agent.external) {
       // Muse works on its own; the bridge delivers the task and brings the answer back.
       task.status = 'running'; task.startedAt = now();
@@ -862,10 +876,11 @@ You are running on a chat-only brain: you can't use tools, browse, save files or
     live[agent.id] = { status: 'running', task: 'Thinking…', progress: 3 };
     save();
     try {
-      task.result = await runAgent(agent, task); task.status = 'done';
+      task.result = await Promise.race([runAgent(agent, task), new Promise((_, rej) => { stops[task.id] = rej; })]); task.status = 'done';
       event('success', agent.id, `Finished: ${task.title || task.prompt.slice(0, 60)}`);
     } catch (e) {
       task.status = 'error';
+      if (task.stopped) { task.result = 'Stopped by you.'; return task; }
       const A = AnthropicSDK;
       task.result = A && e instanceof A.AuthenticationError ? 'Your Claude API key is invalid. Update it in Brain → Connect → Set up brains.'
         : A && e instanceof A.RateLimitError ? 'Claude is rate limiting requests. Try again in a minute.'
@@ -873,6 +888,7 @@ You are running on a chat-only brain: you can't use tools, browse, save files or
         : e.message || String(e);
       event('error', agent.id, `Task failed: ${task.result}`);
     } finally {
+      delete stops[task.id];
       task.finishedAt = now();
       live[agent.id] = { status: task.status === 'error' ? 'error' : 'idle', task: task.status === 'error' ? task.result : '', progress: 0 };
       save();
@@ -960,6 +976,12 @@ You are running on a chat-only brain: you can't use tools, browse, save files or
       const ids = Array.isArray(b.ids) ? new Set(b.ids) : null; let n = 0;
       for (const t of state.tasks) if ((t.status === 'done' || t.status === 'error') && !t.archived && (!ids || ids.has(t.id))) { t.archived = true; n++; }
       save(); return { ok: true, count: n };
+    }],
+    ['POST', /^tasks\/([^/]+)\/stop$/, ([id]) => { const t = state.tasks.find((x) => x.id === id); if (!t) throw httpError('No such task'); if (!stopTask(t)) throw httpError('This task already finished'); return { ok: true }; }],
+    ['DELETE', /^tasks\/([^/]+)$/, ([id]) => {
+      const t = state.tasks.find((x) => x.id === id); if (!t) throw httpError('No such task');
+      stopTask(t); state.tasks = state.tasks.filter((x) => x !== t);
+      state.deleted = [{ id, at: now() }, ...(state.deleted || [])].slice(0, 500); save(); return { ok: true };
     }],
     ['POST', /^tasks\/([^/]+)\/(archive|restore)$/, ([id, op]) => {
       const t = state.tasks.find((x) => x.id === id); if (!t) throw httpError('No such task');

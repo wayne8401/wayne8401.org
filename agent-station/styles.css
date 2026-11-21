@@ -747,3 +747,5 @@ body.space-agency .svhost { height: min(78vh, 760px); }
 .citybar button.on { border-color: #38e8ff; background: rgba(56,232,255,.14); }
 .citybar button.on span { color: var(--cyan); }
 @media (max-width: 760px) { .citybar button span { display: none; } }
+.taskctl { gap: 8px; margin: 10px 0 4px; }
+.btn.danger { border-color: rgba(255,92,122,.6); color: #ffb3c1; background: rgba(255,92,122,.12); }

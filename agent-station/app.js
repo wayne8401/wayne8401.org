@@ -1032,6 +1032,7 @@
     return `
       <div class="wf-head">${avatar(a)}<div class="grow"><h3>${esc(a.name)}</h3><p class="muted">${esc(t.title || 'Task')} · ${ago(t.createdAt)}</p></div>${pill(t.status)}</div>
       ${t.ask && t.status === 'running' ? askCard(t) : ''}
+      ${S.mode === 'phone' ? `<div class="row taskctl">${t.status === 'running' || t.status === 'queued' ? `<button class="btn small danger" data-act="task-stop" data-id="${esc(t.id)}">⏹ Stop task</button>` : ''}<button class="btn small ghost" data-act="task-delete" data-id="${esc(t.id)}">🗑 Delete task</button></div>` : ''}
       <h2>Your prompt</h2><div class="card"><p class="prewrap">${esc(t.prompt)}</p></div>
       <h2>Timeline</h2>
       <div class="card"><ol class="timeline">${(t.log || []).map((l) => `<li><span class="mono muted">${clock(l.ts)}</span> ${esc(l.msg)}</li>`).join('') || `<li class="muted">${t.status === 'queued' ? 'Waiting for the agent to finish its current task…' : 'Starting…'}</li>`}${t.status === 'running' ? '<li class="pulse-dot">working…</li>' : ''}</ol></div>
@@ -1850,6 +1851,8 @@
     'line-save': () => { const l = ui.lineAgents || []; const n = $('#lineName'); const name = (n && n.value.trim()) || l.map(agentName).join(' ➜ '); closeSheet(); act(() => call('POST', 'workflows', { name, description: 'Production line', steps: l.map((id, i) => ({ name: agentName(id), agent: id, instructions: i === 0 ? 'Do your part of the job described in the input.' : 'Take the previous step\'s result and do your part. Improve and build on it.' })) }), 'Line built. Run it from the Flows tab.'); },
     'go-tasks': () => go('tasks'),
     agent: (id) => openSheet('agent', id),
+    'task-stop': (id) => act(() => call('POST', `tasks/${encodeURIComponent(id)}/stop`, {}), '⏹ Task stopped'),
+    'task-delete': (id) => { if (!confirm('Delete this task and its result? Files it saved stay in your Outbox.')) return; closeSheet(); act(() => call('DELETE', `tasks/${encodeURIComponent(id)}`), '🗑 Task deleted'); },
     'link-on': () => act(() => call('POST', 'bridge', { link: true }), '🔗 Linked: syncing with your other device'),
     'link-off': () => act(() => call('POST', 'bridge', { link: false }), 'Unlinked this device'),
     async 'backup-save'() {

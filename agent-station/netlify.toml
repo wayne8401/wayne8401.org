@@ -6,3 +6,11 @@
 [functions]
   node_bundler = "esbuild"
   included_files = ["bridge/**"]
+
+# Old Space Agency address. The page now lives in the space-agency/ folder;
+# a space-agency.html file next to it made Netlify bounce between the two forever.
+[[redirects]]
+  from = "/space-agency.html"
+  to = "/space-agency/"
+  status = 301
+  force = true

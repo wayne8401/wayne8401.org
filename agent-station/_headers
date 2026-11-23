@@ -3,3 +3,5 @@
 /*
   Cross-Origin-Opener-Policy: same-origin
   Cross-Origin-Embedder-Policy: credentialless
+/*.webmanifest
+  Content-Type: application/manifest+json

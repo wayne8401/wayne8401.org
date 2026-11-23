@@ -1635,7 +1635,7 @@
 
   function welcomeSheet() {
     return `<div class="welcome"><div class="center"><span class="core big"></span></div>
-      <h3 class="center">Welcome to Agent Station</h3>
+      <h3 class="center">Welcome to ${window.SPACE_AGENCY ? 'Space Agency' : 'Agent Station'}</h3>
       <p class="muted center">Your own team of AI agents that research, write, plan, remember and learn. How should they think?</p>
       <button class="card choice" data-act="welcome-phone"><span class="emo">📱</span><div class="grow"><b>Run them on this phone</b><p class="muted tiny">Free. No computer needed. Download a free Qwen model, or use a free online one.</p></div><span class="mbadge free">RECOMMENDED</span></button>
       <button class="card choice" data-act="welcome-demo"><span class="emo">🎮</span><div class="grow"><b>Just look around first</b><p class="muted tiny">Demo mode with pretend agents. Switch anytime in ⚙️.</p></div></button>
@@ -2166,7 +2166,7 @@
 
   /* ============================================================== tour */
   const TOUR = [
-    { title: 'Welcome to Agent Station 👋', text: 'This is mission control for your AI team. In about a minute you will know how to give agents real work, run team workflows, and teach them things.' },
+    { title: `Welcome to ${window.SPACE_AGENCY ? 'Space Agency' : 'Agent Station'} 👋`, text: 'This is mission control for your AI team. In about a minute you will know how to give agents real work, run team workflows, and teach them things.' },
     { tab: 'station', target: '#statsRow', title: 'Live numbers', text: 'How many agents are working, tasks finished, what they have learned, and spend — updated live.' },
     { tab: 'station', target: '#prodLine', title: 'The production line', text: 'Every task travels down the line: Queue → Working → Done. Tap any package to see its progress and result.' },
     { tab: 'station', target: '#floor .desk', title: 'Workstations', text: 'Each agent works at a desk in its station. A lit, typing monitor means it is working; the bubble says what it is doing right now. Tap a desk to look inside or give that agent a task.' },

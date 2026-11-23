@@ -706,7 +706,7 @@ You are running on a chat-only brain: you can't use tools, browse, save files or
   const BRIDGE_LS = 'as.bridge';
   const bridgeCfg = () => { try { return JSON.parse(localStorage.getItem(BRIDGE_LS)) || {}; } catch { return {}; } };
   const setBridgeCfg = (c) => { try { localStorage.setItem(BRIDGE_LS, JSON.stringify(c)); } catch { /* private mode */ } };
-  const defaultBridgeUrl = () => (typeof location !== 'undefined' && /^https?:/.test(location.origin) ? `${location.origin}/bridge` : '');
+  const defaultBridgeUrl = () => (typeof location === 'undefined' || !/^https?:/.test(location.origin) ? '' : location.port === '8765' && /^(localhost|127\.0\.0\.1)$/.test(location.hostname) ? 'https://mobileaiagentstation.netlify.app/bridge' : `${location.origin}/bridge`); // the PC launcher (Start Space Agency.bat) still uses your site's bridge
   const bridge = { connected: false, lastSync: 0, error: '', reportsSeen: {}, waiters: {} };
   const MUSE_LOOK = { ...(window.AgentStationCharacters?.LOOKS.muse || {}) };
   function ensureMuse(on) {

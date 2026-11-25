@@ -334,6 +334,8 @@
   const cfg = Object.assign({ source: '', base: '', token: '', interval: 3 }, store.get('cfg', {}));
   const isServer = () => cfg.source === 'server';
   const isPhone = () => cfg.source === 'phone';
+  const HERE = window.SPACE_AGENCY ? 'PC' : 'phone'; // Space Agency runs on a PC, Agent Station on a phone
+  const HERE_EMO = window.SPACE_AGENCY ? '💻' : '📱';
   const engine = window.AgentStationEngine;
   const apiUrl = (p) => { const b = (cfg.base || '').trim().replace(/\/+$/, ''); return (b ? b + '/' : '') + 'api/' + p; };
 
@@ -377,7 +379,7 @@
   }
 
   /* ============================================================ models */
-  const PROV_NAME = { anthropic: 'Claude', ollama: 'Ollama · local', openrouter: 'OpenRouter', groq: 'Groq', custom: 'Custom', device: 'On this phone', openai: 'OpenAI', gemini: 'Google Gemini', xai: 'xAI Grok', mistral: 'Mistral', deepseek: 'DeepSeek', perplexity: 'Perplexity' };
+  const PROV_NAME = { anthropic: 'Claude', ollama: 'Ollama · local', openrouter: 'OpenRouter', groq: 'Groq', custom: 'Custom', device: window.SPACE_AGENCY ? 'On this PC' : 'On this phone', openai: 'OpenAI', gemini: 'Google Gemini', xai: 'xAI Grok', mistral: 'Mistral', deepseek: 'DeepSeek', perplexity: 'Perplexity' };
   const modelInfo = (id) => S.models.find((m) => m.id === id);
   function shortModel(id) {
     if (!id) return '—';
@@ -636,10 +638,10 @@
       }).join('') || empty('No stations yet.');
     },
     hello: () => {
-      if (S.mode === 'phone' && !S.models.length) return `${commanderAvatar('md')}<div class="grow"><h3>${greeting()}</h3><p class="muted">Your agents run <b>on this phone</b>, but they need a brain first. It's free.</p></div>
+      if (S.mode === 'phone' && !S.models.length) return `${commanderAvatar('md')}<div class="grow"><h3>${greeting()}</h3><p class="muted">Your agents run <b>on this ${HERE}</b>, but they need a brain first. It's free.</p></div>
         <button class="btn small" data-act="brain">🧠 Set up</button>`;
-      const line = S.mode === 'demo' ? 'You are in <b>demo mode</b>: everything is simulated. Tap ⚙️ to run real agents.'
-        : S.mode === 'phone' ? `Agents run on this phone · ${esc(shortModel(S.defaultModel))}${isFree(S.defaultModel) ? ' · free' : ''}`
+      const line = S.mode === 'demo' ? `You are in <b>demo mode</b>: everything is simulated. <button class="link" data-act="go-real">▶ Run real agents on this ${HERE}</button>`
+        : S.mode === 'phone' ? `Agents run on this ${HERE} · ${esc(shortModel(S.defaultModel))}${isFree(S.defaultModel) ? ' · free' : ''}`
         : `Connected to your station · ${esc(shortModel(S.defaultModel || S.model))}`;
       return `${commanderAvatar('md')}<div class="grow"><h3>${greeting()}</h3><p class="muted">${line}</p>${S.mode === 'phone' ? `<button class="brainchip" data-act="brain">🧠 Brain: <b>${esc(shortModel(S.defaultModel))}</b> ▾</button>` : ''}</div><button class="btn small" data-act="go-tasks">+ New task</button>`;
     },
@@ -727,11 +729,16 @@
     },
   };
 
+  function demoExitHtml() {
+    return `<div class="card warn"><p style="margin:0 0 10px"><b>You're in demo mode.</b> These agents and models are pretend, so there are no brains to set up here. Switch to real agents to download a free model or add your keys.</p><button class="btn" data-act="go-real">${HERE_EMO} Run real agents on this ${HERE}</button></div>`;
+  }
+
   function connectHtml() {
     const statusPill = (c) => `<span class="pill s-${{ connected: 'running', connecting: 'waiting', error: 'error', off: 'idle' }[c.status] || 'idle'}">${esc(c.status)}</span>`;
     return `
       <div class="intro card"><p><b>Connect</b> gives your agents brains and hands: choose <b>AI models</b> (including free, open-source ones), switch on <b>connectors</b> to apps and services, and toggle <b>plugins</b>.</p></div>
       ${S.mode === 'phone' ? phoneConnectHtml() : ''}
+      ${S.mode === 'demo' ? demoExitHtml() : ''}
       <h2>Voice</h2>
       ${voiceSettingsHtml()}
       <div class="h2row"><h2>AI models</h2><button class="link" data-act="refresh-models">↻ Refresh</button></div>
@@ -1073,9 +1080,9 @@
   function settingsSheet() {
     return `<form data-form="settings">
       <h3>⚙️ Connection</h3>
-      <p class="muted">${S.mode === 'demo' ? 'Now: <b>demo mode</b> (simulated).' : S.mode === 'phone' ? 'Now: agents run <b>on this phone</b>.' : `Now: connected to a station server${lastOk ? ', last update ' + clock(lastOk) : ''}.`} ${lastErr ? `<span class="s-error">Error: ${esc(lastErr)}</span>` : ''}</p>
+      <p class="muted">${S.mode === 'demo' ? 'Now: <b>demo mode</b> (simulated).' : S.mode === 'phone' ? `Now: agents run <b>on this ${HERE}</b>.` : `Now: connected to a station server${lastOk ? ', last update ' + clock(lastOk) : ''}.`} ${lastErr ? `<span class="s-error">Error: ${esc(lastErr)}</span>` : ''}</p>
       <label class="field">Where do agents run?<select name="source">
-        <option value="phone" ${isPhone() ? 'selected' : ''}>On this phone (no computer needed)</option>
+        <option value="phone" ${isPhone() ? 'selected' : ''}>${window.SPACE_AGENCY ? 'On this PC, inside the app (real agents)' : 'On this phone (no computer needed)'}</option>
         <option value="server" ${isServer() ? 'selected' : ''}>On my computer (station server: adds connectors and voice cloning)</option>
         <option value="demo" ${cfg.source === 'demo' ? 'selected' : ''}>Demo (pretend agents)</option></select></label>
       <p class="muted tiny" style="margin:-6px 0 12px">The fields below are only for the computer option.</p>
@@ -1152,10 +1159,10 @@
     }
     const typing = document.activeElement?.closest?.('#sheetBody form') || (document.activeElement?.tagName === 'SELECT' && document.activeElement.closest('#sheetBody'));
     if (ui.sheet && !typing) renderSheet();
-    $('#sourceLabel').textContent = S.mode === 'demo' ? 'Demo mode' : S.mode === 'phone' ? 'Running on this phone' : (() => { try { return cfg.base ? new URL(cfg.base).host : location.host; } catch { return 'My station'; } })();
+    $('#sourceLabel').textContent = S.mode === 'demo' ? 'Demo mode' : S.mode === 'phone' ? `Running on this ${HERE}` : (() => { try { return cfg.base ? new URL(cfg.base).host : location.host; } catch { return 'My station'; } })();
     const badge = $('#liveBadge');
     badge.className = 'live' + (lastErr ? ' error' : S.mode === 'demo' ? ' demo' : '');
-    $('#liveText').textContent = lastErr ? 'OFFLINE' : S.mode === 'demo' ? 'DEMO' : S.mode === 'phone' ? 'ON PHONE' : 'LIVE';
+    $('#liveText').textContent = lastErr ? 'OFFLINE' : S.mode === 'demo' ? 'DEMO' : S.mode === 'phone' ? (window.SPACE_AGENCY ? 'ON PC' : 'ON PHONE') : 'LIVE';
     keepAwake(S.tasks.some((t) => t.status === 'running' || t.status === 'queued') && S.mode === 'phone');
     voiceCheck();
     readResultsCheck();
@@ -1591,7 +1598,7 @@
       <p class="muted">Agents run <b>inside this app</b>. Pick one or more brains. You can mix them per agent.</p>
       <button class="btn ghost" data-act="muse-open" style="margin:6px 0 4px">🤝 Connect Muse</button>
 
-      <h2>📱 On this phone: free, private, offline</h2>
+      <h2>${HERE_EMO} On this ${HERE}: free, private, offline</h2>
       ${d.supported !== false ? `<p class="muted tiny" style="margin:-4px 2px 10px">Free models that run right on your phone${d.webgpu ? ' (using its graphics chip)' : ''}. Download once over Wi-Fi; after that they work without internet. Keep the app open while it downloads. Smaller = faster.</p>
         ${[[true, '🛠 Uses tools: files, memory, skills, weather, Wikipedia…'], [false, '💬 Chat only: answers, writing, ideas and conversation']].map(([tools, title]) => `
         <p class="tiny dgroup">${title}</p>
@@ -1625,7 +1632,7 @@
           <label class="field">OpenAI-compatible server URL<input name="customUrl" type="url" placeholder="https://…/v1" value="${esc(typeof k.customUrl === 'string' ? k.customUrl : '')}"></label>
           <label class="field">Its key (optional)<input name="customKey" type="password" autocomplete="off"></label>
         </details>
-        <p class="muted tiny">🔒 Keys are stored only on this phone and sent only to that service.</p>
+        <p class="muted tiny">🔒 Keys are stored only on this ${HERE} and sent only to that service.</p>
         <div class="row"><button class="btn" type="submit">Save keys</button>${Object.values(k).some(Boolean) ? '<button type="button" class="btn ghost narrow" data-act="clear-keys">Clear all</button>' : ''}</div>
       </form>
       ${S.models.length ? `<label class="field" style="margin-top:14px">Default brain for all agents<select data-change="default-model">${modelOptions(S.defaultModel, false)}</select></label>` : ''}
@@ -1637,7 +1644,7 @@
     return `<div class="welcome"><div class="center"><span class="core big"></span></div>
       <h3 class="center">Welcome to ${window.SPACE_AGENCY ? 'Space Agency' : 'Agent Station'}</h3>
       <p class="muted center">Your own team of AI agents that research, write, plan, remember and learn. How should they think?</p>
-      <button class="card choice" data-act="welcome-phone"><span class="emo">📱</span><div class="grow"><b>Run them on this phone</b><p class="muted tiny">Free. No computer needed. Download a free Qwen model, or use a free online one.</p></div><span class="mbadge free">RECOMMENDED</span></button>
+      <button class="card choice" data-act="welcome-phone"><span class="emo">${HERE_EMO}</span><div class="grow"><b>Run them on this ${HERE}</b><p class="muted tiny">Real agents, free. ${window.SPACE_AGENCY ? 'Nothing else to install.' : 'No computer needed.'} Download a free Qwen model, or use a free online one.</p></div><span class="mbadge free">RECOMMENDED</span></button>
       <button class="card choice" data-act="welcome-demo"><span class="emo">🎮</span><div class="grow"><b>Just look around first</b><p class="muted tiny">Demo mode with pretend agents. Switch anytime in ⚙️.</p></div></button>
       <button class="card choice" data-act="welcome-server"><span class="emo">💻</span><div class="grow"><b>Connect my computer</b><p class="muted tiny">For power users running the station server (connectors, voice cloning).</p></div></button>
     </div>`;
@@ -1958,7 +1965,7 @@
         <label class="field">Name<input name="name" maxlength="40" value="${esc(c.via ? c.name : c.name)}"></label>
         ${c.url ? `<input type="hidden" name="url" value="${esc(c.url)}">` : `<label class="field">${esc(c.urlLabel)}<input name="url" type="url" required placeholder="https://…"></label>`}
         ${c.tokenLabel ? `<label class="field">${esc(c.tokenLabel)}<input name="token" type="password" autocomplete="off" ${c.kind === 'github' ? 'required' : ''}></label>` : ''}
-        <p class="muted tiny">🔒 Stored only on this phone. ${c.kind === 'url' || c.kind === 'github' ? 'Give tokens the least access they need.' : 'Your Zapier URL works like a password: keep it private.'}</p>
+        <p class="muted tiny">🔒 Stored only on this ${HERE}. ${c.kind === 'url' || c.kind === 'github' ? 'Give tokens the least access they need.' : 'Your Zapier URL works like a password: keep it private.'}</p>
         <button class="btn" type="submit">Connect</button></form>`);
     },
     'pconn-toggle': (id) => { const c = (S.connectors || []).find((x) => x.id === id); act(() => call('POST', `phone-connectors/${id}/toggle`, { enabled: !c?.enabled }), c?.enabled ? 'Connector off' : 'Connector on'); },
@@ -1977,7 +1984,8 @@
     'fb-station': (id) => { ui.forge.station = id; renderSheet(); },
     'fb-hear': () => { const f = ui.forge; const set = (v) => { ui.forgeSpeak = v; const p = $('#forgePreview'); if (p && ui.forge) p.innerHTML = forgePreview(ui.forge); }; set(true); Promise.resolve(speakDevice(`Hi! I'm ${f.name || 'your new agent'}${f.role ? `, your ${f.role.toLowerCase()}` : ''}. Ready when you are.`, ++vc.speakId, f.pitch)).finally(() => set(false)); },
     'fb-build': () => forgeBuild(),
-    brain: () => { if (isPhone()) return openSheet('brain'); closeSheet(); ui.brain = 'connect'; go('brain'); },
+    brain: () => { if (isPhone()) return openSheet('brain'); if (cfg.source === 'demo') return openSheet('form', null, `<h3>🧠 Brains need real agents</h3>${demoExitHtml()}<button class="btn ghost" data-close style="margin-top:10px">Stay in demo</button>`); closeSheet(); ui.brain = 'connect'; go('brain'); },
+    'go-real': async () => { cfg.source = 'phone'; store.set('cfg', cfg); lastErr = ''; closeSheet(); await refresh(); render(); schedule(); toast(`Real agents now run on this ${HERE} ${HERE_EMO}`); if (!S.models.length) setTimeout(() => openSheet('brain'), 300); },
     'download-model': (id) => {
       ui.loadingModel = id;
       toast('Downloading… keep the app open (use Wi-Fi)');
@@ -1993,7 +2001,7 @@
     },
     'use-model': (id) => act(() => call('PATCH', 'settings', { defaultModel: id }), 'Default brain set'),
     'forget-model': (id) => act(() => call('POST', 'brain/forget-device', { model: id }), 'Removed from the list (your browser may keep the cached files)'),
-    'clear-keys': () => { if (confirm('Remove all saved keys from this phone?')) act(() => call('POST', 'brain/keys', { clear: true, customUrl: '' }), 'Keys removed'); },
+    'clear-keys': () => { if (confirm(`Remove all saved keys from this ${HERE}?`)) act(() => call('POST', 'brain/keys', { clear: true, customUrl: '' }), 'Keys removed'); },
     'welcome-phone': async () => { cfg.source = 'phone'; store.set('cfg', cfg); closeSheet(); await refresh(); render(); schedule(); openSheet('brain'); },
     'welcome-demo': async () => { cfg.source = 'demo'; store.set('cfg', cfg); closeSheet(); await refresh(); render(); schedule(); if (!store.get('toured', false)) setTimeout(startTour, 400); },
     'welcome-server': () => { cfg.source = 'server'; store.set('cfg', cfg); closeSheet(); ACTIONS.settings(); },
@@ -2130,7 +2138,7 @@
       const body = {};
       for (const n of ['openrouter', 'groq', 'anthropic', 'customKey', ...PAID_FIELDS.map(([id]) => id), ...PAID_FIELDS.map(([id]) => `${id}Model`)]) if (f[n]?.value.trim()) body[n] = f[n].value.trim();
       if (f.customUrl) body.customUrl = f.customUrl.value.trim();
-      const r = await act(() => call('POST', 'brain/keys', body), 'Keys saved on this phone');
+      const r = await act(() => call('POST', 'brain/keys', body), `Keys saved on this ${HERE}`);
       if (r) { f.reset(); toast(r.count ? `${r.count} model(s) ready ✅` : 'Saved, but no models were found yet. Check the key.', r.count ? '' : 'bad'); renderSheet(); }
     },
     clone1(f) {
@@ -2156,7 +2164,7 @@
       await refresh();
       if (isServer() && lastErr) toast(`Couldn't connect: ${lastErr}`, 'bad');
       else {
-        toast(isServer() ? 'Connected to your station ✅' : isPhone() ? 'Agents now run on this phone 📱' : 'Demo mode on');
+        toast(isServer() ? 'Connected to your station ✅' : isPhone() ? `Agents now run on this ${HERE} ${HERE_EMO}` : 'Demo mode on');
         closeSheet(); render();
         if (isPhone() && !S.models.length) setTimeout(() => openSheet('brain'), 300);
       }
